@@ -1,0 +1,29 @@
+{
+  "name": "kitchen-api",
+  "version": "1.0.0",
+  "description": "Read-only kitchen ingredient API for local Express and Netlify Functions",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "netlify dev",
+    "build": "node --check app.js && node --check db.js && node --check netlify/functions/api.js",
+    "test": "node --test",
+    "verify:api": "node scripts/verify-api.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "mongodb": "^7.8.0",
+    "serverless-http": "^4.0.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^27.16.2"
+  },
+  "engines": {
+    "node": "24.x || 26.x"
+  }
+}
