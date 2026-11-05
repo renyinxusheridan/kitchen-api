@@ -13,12 +13,6 @@
   status = 200
   force = true
 
-[[redirects]]
-  from = "/"
-  to = "/.netlify/functions/api"
-  status = 200
-  force = true
-
 [dev]
   framework = "#static"
   publish = "public"

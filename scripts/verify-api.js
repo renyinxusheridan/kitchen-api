@@ -29,9 +29,14 @@ async function verify() {
   assert.equal(repeat.status, 200);
   assert.deepEqual(ids(await repeat.json()), ids(all));
   assert.equal((await fetch(new URL('/api/ingredients?storage=invalid', base))).status, 400);
-  assert.equal((await fetch(new URL('/api/ingredients', base), { method: 'POST' })).status, 404);
+  const invalidCreate = await fetch(new URL('/api/ingredients', base), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: 0 })
+  });
+  assert.equal(invalidCreate.status, 400);
+  assert.equal(typeof (await invalidCreate.json()).error, 'string');
+  assert.equal((await fetch(new URL('/api/ingredients', base), { method: 'DELETE' })).status, 404);
   console.log(JSON.stringify({ all: all.count, eggs: eggs.count, fridge: fridge.count }));
-  console.log('PASS: ingredient reads, both filters, repeat invocation, invalid storage, and rejection of POST.');
+  console.log('PASS: ingredient reads, both filters, repeat invocation, invalid create/storage, and rejection of DELETE. No records were created by this check.');
 }
 
 verify().catch(() => {

@@ -1,36 +1,75 @@
-# Kitchen API
+# Kitchen inventory — Read & Create
 
-A read-only Express API for `kitchen_app.ingredients`. The same routes run locally and through Netlify Functions. The response contains `count`, `limit` (100), and `ingredients`.
+A plain HTML, CSS, and JavaScript interface for the class activity **Collecting Data From Users and Displaying It Back to Them**. Ingredients are read from and saved to `kitchen_app.ingredients` in MongoDB.
 
-| Path | Result |
-| --- | --- |
-| `/api/ingredients` | Ingredients, sorted by name |
-| `/api/ingredients?name=eggs` | Case-insensitive name search |
-| `/api/ingredients?storage=fridge` | Exact storage filter |
+## Use the interface locally
 
-You can combine the two filters. Storage accepts `fridge`, `freezer`, or `pantry`. The API has no create, update, or delete routes. Once the project is public, anyone with its URL can read the returned ingredient data.
-
-## Run locally
-
-The deployment uses Node.js **24**, selected by `.node-version`. Node 24 is an LTS release supported by Netlify Functions and satisfies the installed dependencies' Node requirements. Your current Node 26 can still run `npm start`. To use Node 24 on your Mac, install it from the [official Node.js download page](https://nodejs.org/en/download); if you already use a version manager, select Node 24 with it.
-
-Your existing `.env` is already configured. Keep it. For a new checkout only, copy `.env.example` to `.env` and replace the URI placeholders privately. Special characters in the username/password must be URL-encoded. Never paste credentials into source code, GitHub, chat, or terminal commands.
+Your existing `.env` is already configured. Keep it private and out of Git. No new packages are required for this interface.
 
 ```sh
 cd ~/Desktop/kitchen-api
-npm ci
 npm start
 ```
 
-Open `http://localhost:3000/api/ingredients`. Stop a server with Control+C in its terminal. If port 3000 is in use, stop the earlier server before starting another.
+Open **http://localhost:3000/**. The page displays the ingredient list and an Add an ingredient form. Fill in the visible labels and press **Add ingredient**. While saving, the button is disabled. A successful save resets the form, shows confirmation, and refreshes the list. Reloading reads the same saved ingredient back from MongoDB.
 
-To test Netlify's local routing and Function adapter instead:
+Name, a positive numeric quantity, unit, and storage are required. Storage accepts fridge, freezer, or pantry. Expiry date is optional. Loading, empty, and error states appear in the list; **Refresh list** retries a failed read. Validation errors leave your entered form values intact.
+
+For a fresh checkout, run `npm ci`, copy `.env.example` to `.env`, and replace its placeholders privately. Use `kitchen_app` for DB_NAME and `3000` for PORT. URL-encode reserved characters in database credentials. Node 24 is selected for deployment by `.node-version`; Node 24 and 26 are allowed locally.
+
+## API
+
+| Method and path | Behavior |
+| --- | --- |
+| `GET /api/ingredients` | Returns `count`, `limit: 100`, and ingredients sorted by name |
+| `GET /api/ingredients?name=eggs` | Case-insensitive literal name search |
+| `GET /api/ingredients?storage=fridge` | Storage filter; can be combined with name |
+| `POST /api/ingredients` | Validates JSON, inserts one record, and returns HTTP 201 with that record |
+
+Example POST body (Content-Type: application/json):
+
+```json
+{
+  "name": "Tomatoes",
+  "quantity": 2,
+  "unit": "pieces",
+  "storage": "fridge",
+  "expiryDate": "2026-12-31"
+}
+```
+
+Names and units are trimmed. Name accepts 1–100 characters and unit accepts 1–40. Quantity must be a finite JSON number greater than zero, not a numeric string. Expiry accepts a real `YYYY-MM-DD` date; it is converted to a MongoDB Date at midnight UTC. An omitted, empty, or null expiry is stored as null. Invalid input or JSON returns HTTP 400 with an `error` message. Unexpected database failures return a generic HTTP 500 response without credentials or internal driver details. Only the five ingredient fields are inserted; client-supplied `_id` and other extra fields are ignored.
+
+No update, delete, authentication, recipes, or other features are included. On a public deployment, visitors can read and add ingredients through these routes.
+
+## Files and routing
+
+- `public/index.html`, `public/styles.css`, and `public/app.js`: responsive interface, accessible labels, relative `/api/...` fetch calls, and safe text rendering.
+- `app.js`: shared Express GET and POST routes with server-side validation.
+- `server.js`: local `.env` loading, connection startup, static file serving from `public/`, and API listening.
+- `db.js`: one cached MongoClient connection promise per local process or warm Function instance. A failed initial attempt can be retried.
+- `netlify/functions/api.js`: Express adapter using `serverless-http`; no listening port is opened inside a Function.
+- `netlify.toml`: publishes `public/` and rewrites only `/api/*` to the Function. The old forced `/` rewrite was removed so Netlify serves `public/index.html` at the homepage.
+- `.gitignore`: excludes `.env`, other local environment files, `node_modules/`, and `.netlify/`. The source directory `netlify/`, `netlify.toml`, and placeholder-only `.env.example` remain included.
+
+This follows the [Netlify Express guide](https://docs.netlify.com/build/frameworks/framework-setup-guides/express/). The Function continues using your existing server-side environment variables; database credentials are never sent to browser JavaScript.
+
+## Test locally
+
+```sh
+npm test
+npm run build
+```
+
+Tests use fake collections and a small DOM adapter, so they do not write to your database. They cover API filters and validation, JSON errors, Date/null handling, connection reuse and retry, loading/empty/error states, field rendering, disabled submit state, duplicate-submit prevention, form reset, success, and form errors.
+
+To test Netlify routing locally:
 
 ```sh
 npm run dev -- --offline --no-open
 ```
 
-Open `http://localhost:8888/api/ingredients`. Netlify Dev reads the local `.env`; its offline flag disables Netlify account/network features, while the API still contacts Atlas. No account login or public deployment is needed for this local test.
+Open **http://localhost:8888/**. Netlify Dev reads local `.env`; offline mode avoids account linking and publishing while the API can still contact Atlas.
 
 In another terminal:
 
@@ -38,122 +77,35 @@ In another terminal:
 npm run verify:api -- http://localhost:8888
 ```
 
-The verification script calls all three endpoints, checks their records and filters, repeats a read, checks invalid storage, and confirms POST is rejected. It needs nonempty sample data matching eggs and fridge. It does not modify records.
+This checks the three existing GET URLs, both filters, a repeat read, rejection of invalid create input, and rejection of DELETE. It does not create records. It expects the original sample data to include eggs and fridge ingredients.
 
-## What changed for Netlify
+The actual create verification for this update was **local**, using Netlify Dev and Atlas. Exactly one clearly labelled ingredient was added by the automated check: **TEST — Class activity (2026-11-05)**, quantity 1, unit test item, storage pantry, expiry 2026-12-31. The real frontend script was exercised with a DOM adapter against the actual API: HTTP 201, one POST despite a repeated submit, form reset, success, refreshed list, and persistence in a fresh page instance were verified. The browser displayed the real ingredient cards and a successful form save, and a real browser reload showed the labelled test ingredient. Browser automation was interrupted during form interaction, so the automated create check did not depend on browser controls.
 
-- `app.js` contains the existing routes. It does not open a listening port or load `.env`.
-- `server.js` loads `.env`, connects, and listens only for local `npm start`.
-- `db.js` caches a MongoClient connection promise. Concurrent requests share the same attempt, and warm Function invocations reuse the pool. A failed connection is cleared so another invocation can retry. Separate Function instances each have their own pool, limited to five application connections per server plus driver monitoring sockets.
-- `netlify/functions/api.js` adapts Express using `serverless-http` and keeps database sockets available after a response.
-- `netlify.toml` rewrites `/api/*` to that Function, preserving the public API paths and query strings. `/` also returns the existing API welcome response. It configures esbuild and the Functions directory.
-- `public/` is the empty static publish directory. Source code and `.env` are outside it. The nonempty build command checks syntax and makes Netlify build the Function, as required for an API without a frontend.
-- `.gitignore` excludes `.env`, other local environment files, `node_modules/`, and `.netlify/`. `.env.example` contains placeholders only, with comments explaining the database and port values to enter.
+The test ingredient was left in MongoDB. A direct database comparison confirmed all six original documents remained unchanged and the test expiry is stored as a BSON Date. Another record added during browser use was preserved too. Local `.env` was unchanged. This update has **not** been verified on the live Netlify deployment.
 
-This follows the [official Netlify Express guide](https://docs.netlify.com/build/frameworks/framework-setup-guides/express/). Netlify's [runtime configuration](https://docs.netlify.com/build/functions/configuration/#nodejs-version-for-runtime) documents Node 24 support. MongoDB recommends [reusing a client and its connection pool](https://www.mongodb.com/docs/drivers/node/current/connect/connection-options/connection-pools/).
+## Publish this update to your existing Netlify site
 
-## Verification completed locally
+Your GitHub repository is already configured as `origin`: https://github.com/renyinxusheridan/kitchen-api.
 
-Verified on November 5, 2026 with Node **24.22.2**, Netlify CLI **27.16.2**, and your actual Atlas records:
-
-| Check | Result |
-| --- | --- |
-| `npm test` | 6 tests passed: adapter, validation, credential-safe errors, connection reuse, connection retry, and Function entrypoint |
-| `netlify build --offline` | Production Function bundle built successfully |
-| Standalone Express, port 3000 | All three endpoints returned HTTP 200; counts 6 / 1 / 3 |
-| Netlify Dev rewrite + Function, port 8888 | All three endpoints returned HTTP 200; counts 6 / 1 / 3 |
-| Repeat request, invalid storage, POST | Passed on both local servers |
-| Function bundle and checked source | No current connection credentials or `.env` file in the Function bundle; no current credentials in checked source |
-| Git ignore rules | Secret/local files excluded; `.env.example` allowed |
-
-These are **local results**. They do not verify Netlify's hosted runtime or its network path to Atlas. No GitHub repository was created and no public deployment was made during preparation. Your MongoDB records were not modified.
-
-## Step 1: Create your GitHub repository
-
-1. Sign in to GitHub. Click **+ → New repository**.
-2. Name it `kitchen-api`. A **Private** repository is fine; the deployed API can still be public.
-3. Leave the README, `.gitignore`, and license initialization options unchecked because these files already exist locally. Click **Create repository**.
-4. In your project terminal, run:
+1. Review the changes, then commit the interface, route, tests, and documentation:
 
 ```sh
-cd ~/Desktop/kitchen-api
-git init -b main
-git add .gitignore .env.example .node-version package.json package-lock.json server.js app.js db.js netlify.toml netlify/functions/api.js public/.gitkeep scripts/verify-api.js test/api.test.js README.md
 git status --short
+git add app.js server.js netlify.toml package.json public/index.html public/styles.css public/app.js scripts/verify-api.js test/api.test.js test/frontend.test.js test/frontend-harness.cjs README.md
 git diff --cached --name-only
+git commit -m "Add ingredient form and Read/Create API"
+git push origin main
 ```
 
-5. Check the file list. `.env`, `node_modules`, and `.netlify` must be absent. `.env.example` should be present. Then commit:
-
-```sh
-git commit -m "Prepare read-only kitchen API for Netlify Functions"
-```
-
-If Git asks for your identity, set your own name and GitHub email using the instructions it displays, then repeat the commit. If this is your first GitHub push, use your IDE's GitHub sign-in or GitHub's supported authentication flow; never use the MongoDB password for GitHub.
-
-6. Copy the HTTPS repository URL from GitHub. Replace `YOUR-USERNAME` below with your GitHub username:
-
-```sh
-git remote add origin https://github.com/YOUR-USERNAME/kitchen-api.git
-git push -u origin main
-```
-
-7. Refresh the GitHub repository page. Confirm your source files are there and `.env` is absent.
-
-## Step 2: Import the repository in Netlify
-
-1. Sign in to Netlify and choose your team.
-2. Click **Add new project → Import an existing project → GitHub**.
-3. Follow the GitHub authorization screen and grant access to `kitchen-api`. Select that repository.
-4. Use branch **main** and leave the base directory blank (the repository root).
-5. Confirm the settings from `netlify.toml`: build command **npm run build**, publish directory **public**, and Functions directory **netlify/functions**. Choose no frontend framework if asked.
-6. If the import screen lets you set environment variables, enter the two variables described below before publishing. Otherwise complete the import, then add them in the project settings and trigger a new deployment. A successful build without these variables does not mean database reads work.
-
-Follow Netlify's [repository import guide](https://docs.netlify.com/start/quickstarts/deploy-from-repository/) for the current import flow.
-
-## Step 3: Configure Functions environment variables
-
-1. Open the Netlify project, then **Project configuration → Environment variables → Add a variable → Add a single variable**.
-2. Add **MONGODB_URI**. Copy only its working value from your local `.env` into Netlify's value field. Omit the `MONGODB_URI=` prefix and any surrounding dotenv quotes. Mark it as a secret if that option is available.
-3. Add **DB_NAME** with value **kitchen_app**.
-4. For both variables, select the **Production** deploy context. If scope controls are available on your plan, include **Functions**. If only **All scopes** is available, use that. Builds-only scope will not work. Add values for Deploy Previews separately only if you want previews to access this database.
-5. Do not add `PORT`: Functions do not listen on a port. Do not upload `.env` or put the URI in `netlify.toml`.
-6. The committed `.node-version` selects Node 24 for builds, which Netlify uses for Functions by default. If the project's settings already contain `NODE_VERSION` or `AWS_LAMBDA_JS_RUNTIME` overrides, align them with `24` and `nodejs24.x` respectively. A runtime override belongs in Netlify's UI/CLI/API, never `netlify.toml`.
-7. Go to **Deploys → Trigger deploy → Deploy project**. Environment changes require a fresh deployment.
-
-Netlify documents [Functions scopes and redeployment](https://docs.netlify.com/build/functions/environment-variables/) and the [environment variable UI](https://docs.netlify.com/build/environment-variables/get-started/). The local `.env` is not transferred automatically by Git deployment.
-
-## Step 4: Make the deployed API public and test it
-
-1. Wait for a successful production deploy. In **Cloud compute → Functions**, confirm that the `api` Function exists. Its logs show credential-safe database error messages if a request fails.
-2. If the project is private, use **Make public** after the first successful production deploy. Alternatively, go to **Project configuration → General → Visitor access → Project visibility** and set production deploys to public. GitHub repository privacy is a separate setting. See [Netlify project visibility](https://docs.netlify.com/manage/security/secure-access-to-sites/project-visibility/).
-3. Copy the actual `https://…netlify.app` address from Netlify. Open these three paths on that address, ideally in a private/incognito browser window so you check unauthenticated access:
-
-```text
-https://YOUR-PROJECT.netlify.app/api/ingredients
-https://YOUR-PROJECT.netlify.app/api/ingredients?name=eggs
-https://YOUR-PROJECT.netlify.app/api/ingredients?storage=fridge
-```
-
-4. Run the same verification script against the real production origin:
+2. If your existing Netlify site is connected to this repository's main branch, the push starts a deployment. In **Deploys**, wait for it to finish. The existing settings remain: build command `npm run build`, publish directory `public`, Functions directory `netlify/functions`.
+3. Confirm **Project configuration → Environment variables** has `MONGODB_URI` and `DB_NAME=kitchen_app` for the Production context and Functions scope (or All scopes if your plan does not offer scope controls). Do not add PORT or upload `.env`. If you change environment values, trigger a new deploy. See [Netlify Functions environment variables](https://docs.netlify.com/build/functions/environment-variables/).
+4. Open your actual Netlify site at `/`, preferably in a private browser window, and confirm the form and list load. Also check the original API paths. If the project is private, use **Make public** or the project's visibility settings when you are ready for public access.
+5. Run the safe read/validation check on your real hostname:
 
 ```sh
 npm run verify:api -- https://YOUR-PROJECT.netlify.app
 ```
 
-With the current six records, expect 6 total, 1 eggs record, and 3 fridge records. Public verification is complete only when these live requests return the MongoDB JSON successfully. A Netlify login page is not an API response; check visibility if you see one. Share only the public URL or credential-safe errors for further diagnosis.
+6. To verify live creating too, add a clearly labelled **LIVE TEST** ingredient through the deployed form and reload. A local result does not verify Netlify's hosted network or database permissions. No live write was performed during this implementation.
 
-## If Atlas connection fails after deployment
-
-The current local tests succeeded. There is no evidence requiring an Atlas change for your Mac, and there is not yet a hosted connection result. Keep the existing working database credentials.
-
-- A missing-variable message means to fix **Netlify environment variables**, Functions scope, and deploy context, then redeploy.
-- An authentication message means to check the privately entered URI, database username, password encoding, and environment context against the working local configuration.
-- A DNS message means to check the Atlas hostname and DNS resolution.
-- A server-selection failure means the deployed Function could not reach an eligible server. Check cluster availability and the Atlas network policy; the message alone does not prove the IP access list is the cause.
-
-Netlify's default Function outbound IP addresses can change, and local testing uses your Mac's network. A home-IP-only Atlas entry does not grant access to Netlify's hosted Functions. See [Netlify outbound IP and Private Connectivity](https://docs.netlify.com/manage/security/private-connectivity/).
-
-If hosted connection results establish that an Atlas IP entry is needed, open your **Atlas project → Security → Database & Network Access (or Network Access) → IP Access List → Add IP Address**. Add the known, approved Function egress IPs/CIDRs and confirm. **Add Current IP Address** adds your browser's network, not Netlify's hosted egress. Netlify Private Connectivity provides static Function egress addresses as an Enterprise add-on; with that enabled, allowlist all listed IPs for your Functions region. Ordinary Netlify Functions do not provide a single fixed IP you can copy from your site's public URL.
-
-Allowing `0.0.0.0/0` admits database connection attempts from everywhere. It is a deliberate broader network policy, not a fix demonstrated by these local tests. Prefer approved static egress where available. Atlas documents [IP access entries and their implications](https://www.mongodb.com/docs/atlas/security/ip-access-list/). No Atlas network or database-user changes were performed during preparation.
+The local create succeeded, so the current local database user can insert ingredients. No Atlas changes were needed for local testing. If the deployed site uses different credentials or cannot reach Atlas, inspect the `api` Function logs before changing anything. A missing environment variable, bad credential, or network restriction requires a different fix. Keep any credential changes private and update both local and Netlify environment values when rotating a password.

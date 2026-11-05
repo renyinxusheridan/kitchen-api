@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="See what's in your kitchen and add ingredients to your inventory.">
+  <title>Kitchen inventory</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v6a3 3 0 0 0 6 0V3M8 3v18M19 21V3c-4 2-4 8 0 9"/></svg>
+      </span>
+      Kitchen inventory
+    </div>
+    <span class="activity-tag">Class activity · Read &amp; Create</span>
+  </header>
+
+  <main>
+    <div class="intro">
+      <p class="eyebrow">A place for everything</p>
+      <h1>Your kitchen, at a glance.</h1>
+      <p>Add what you have, then see it all in one place.</p>
+    </div>
+
+    <div class="workspace">
+      <section class="form-panel" aria-labelledby="add-heading">
+        <div class="section-intro">
+          <span class="step-mark" aria-hidden="true">+</span>
+          <div><h2 id="add-heading">Add an ingredient</h2><p>A small addition. A more organized kitchen.</p></div>
+        </div>
+        <p class="form-hint">All fields are required except expiry date.</p>
+        <form id="ingredient-form">
+          <div class="field">
+            <label for="name">Name</label>
+            <input id="name" name="name" type="text" maxlength="100" placeholder="e.g. Cherry tomatoes" required>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="quantity">Quantity</label>
+              <input id="quantity" name="quantity" type="number" min="0" step="any" placeholder="e.g. 2" required aria-describedby="quantity-hint">
+            </div>
+            <div class="field">
+              <label for="unit">Unit</label>
+              <input id="unit" name="unit" type="text" maxlength="40" placeholder="e.g. pieces" required>
+            </div>
+          </div>
+          <p id="quantity-hint" class="input-hint">Quantity must be greater than zero.</p>
+          <div class="field">
+            <label for="storage">Storage location</label>
+            <select id="storage" name="storage" required>
+              <option value="fridge">Fridge</option>
+              <option value="freezer">Freezer</option>
+              <option value="pantry">Pantry</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="expiryDate">Expiry date <span class="optional">(optional)</span></label>
+            <input id="expiryDate" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
+          </div>
+          <button class="button primary" id="save-button" type="submit"><span aria-hidden="true">+</span> Add ingredient</button>
+          <p id="form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        </form>
+        <p class="persistence-note"><span aria-hidden="true">✓</span> Saved ingredients stay here when you reload.</p>
+      </section>
+
+      <section class="inventory-panel" aria-labelledby="inventory-heading">
+        <div class="inventory-header">
+          <div><p class="eyebrow">What you have</p><h2 id="inventory-heading">Your ingredients <span id="ingredient-count" class="count" aria-label="Ingredient count">—</span></h2></div>
+          <button id="refresh-button" class="button secondary" type="button">Refresh list</button>
+        </div>
+        <p class="inventory-note">A little less guessing next time you open the fridge.</p>
+        <div id="ingredient-list" aria-busy="true">
+          <p id="list-message" class="list-message" role="status" aria-live="polite">Loading your ingredients…</p>
+          <ul id="ingredient-cards" class="ingredient-grid" aria-label="Ingredients"></ul>
+        </div>
+        <noscript><p class="list-message error">Enable JavaScript to load ingredients and use the form.</p></noscript>
+      </section>
+    </div>
+    <footer>Collecting Data From Users and Displaying It Back to Them</footer>
+  </main>
+</body>
+</html>

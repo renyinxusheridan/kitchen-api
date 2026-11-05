@@ -3,17 +3,7 @@ const { getDatabase, connectionErrorMessage } = require('./db');
 
 function createApp(getIngredients = async () => (await getDatabase()).collection('ingredients')) {
   const app = express();
-
-  app.get('/', (req, res) => {
-    res.json({
-      message: 'Kitchen API is running',
-      examples: [
-        '/api/ingredients',
-        '/api/ingredients?name=eggs',
-        '/api/ingredients?storage=fridge'
-      ]
-    });
-  });
+  app.use(express.json({ limit: '10kb' }));
 
   app.get('/api/ingredients', async (req, res, next) => {
     try {
@@ -46,14 +36,63 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
     }
   });
 
+  app.post('/api/ingredients', async (req, res, next) => {
+    try {
+      const body = req.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return res.status(400).json({ error: 'Send an ingredient as a JSON object with Content-Type: application/json.' });
+      }
+
+      const { name, quantity, unit, storage, expiryDate } = body;
+      if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) {
+        return res.status(400).json({ error: 'Name is required and must contain 1–100 characters.' });
+      }
+      if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) {
+        return res.status(400).json({ error: 'Quantity must be a positive number greater than zero.' });
+      }
+      if (typeof unit !== 'string' || !unit.trim() || unit.trim().length > 40) {
+        return res.status(400).json({ error: 'Unit is required and must contain 1–40 characters.' });
+      }
+      if (!['fridge', 'freezer', 'pantry'].includes(storage)) {
+        return res.status(400).json({ error: 'Storage must be fridge, freezer, or pantry.' });
+      }
+
+      let parsedExpiry = null;
+      if (expiryDate !== undefined && expiryDate !== null && expiryDate !== '') {
+        if (typeof expiryDate !== 'string' || !/^(?!0000)\d{4}-\d{2}-\d{2}$/.test(expiryDate)) {
+          return res.status(400).json({ error: 'Expiry date must be a real date in YYYY-MM-DD format, or left empty.' });
+        }
+        parsedExpiry = new Date(expiryDate + 'T00:00:00.000Z');
+        // Date parsing can roll impossible dates into the next month; reject that.
+        if (Number.isNaN(parsedExpiry.getTime()) || parsedExpiry.toISOString().slice(0, 10) !== expiryDate) {
+          return res.status(400).json({ error: 'Expiry date must be a real calendar date.' });
+        }
+      }
+
+      // Only these five fields may be written; ignore extra client-supplied fields.
+      const ingredient = { name: name.trim(), quantity, unit: unit.trim(), storage, expiryDate: parsedExpiry };
+      const ingredients = await getIngredients();
+      const result = await ingredients.insertOne(ingredient);
+      res.status(201).json({ ...ingredient, _id: result.insertedId });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.use((req, res) => {
     res.status(404).json({ error: 'Endpoint not found.' });
   });
 
   app.use((error, req, res, next) => {
+    if (error.type === 'entity.parse.failed') {
+      return res.status(400).json({ error: 'Invalid JSON. Check the ingredient data and try again.' });
+    }
+    if (error.type === 'entity.too.large') {
+      return res.status(400).json({ error: 'Ingredient data is too large. Keep the request under 10 KB.' });
+    }
     // Keep connection credentials and internal error details out of API responses.
     console.error(connectionErrorMessage(error));
-    res.status(500).json({ error: 'Unable to load ingredients. Please try again.' });
+    res.status(500).json({ error: req.method === 'POST' ? 'Unable to save the ingredient. Please try again.' : 'Unable to load ingredients. Please try again.' });
   });
 
   return app;

@@ -4,9 +4,9 @@ const serverless = require('serverless-http');
 const { createApp } = require('../app');
 const { createDatabaseConnection, connectionErrorMessage } = require('../db');
 
-function event(path, method = 'GET') {
+function event(path, method = 'GET', body) {
   const url = new URL(path, 'http://localhost');
-  return { httpMethod: method, path: url.pathname, headers: {}, body: null,
+  return { httpMethod: method, path: url.pathname, headers: body === undefined ? {} : { 'content-type': 'application/json' }, body: body === undefined ? null : JSON.stringify(body),
     queryStringParameters: Object.fromEntries(url.searchParams),
     multiValueQueryStringParameters: Object.fromEntries([...new Set(url.searchParams.keys())].map(key => [key, url.searchParams.getAll(key)])),
     isBase64Encoded: false };
@@ -33,12 +33,12 @@ test('Function adapter preserves ingredient paths and filters', async () => {
   }
 });
 
-test('Invalid queries and write methods never reach MongoDB', async () => {
+test('Invalid queries and update/delete methods never reach MongoDB', async () => {
   const handle = serverless(createApp(async () => { assert.fail('Database should not be accessed'); }));
   for (const path of ['/api/ingredients?storage=invalid', '/api/ingredients?name=', '/api/ingredients?name=eggs&name=rice']) {
     assert.equal((await handle(event(path), {})).statusCode, 400);
   }
-  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+  for (const method of ['PUT', 'PATCH', 'DELETE']) {
     assert.equal((await handle(event('/api/ingredients', method), {})).statusCode, 404);
   }
 });
@@ -96,9 +96,62 @@ test('A failed first connection is closed and the next invocation can retry', as
   await connection.close();
 });
 
-test('The actual Netlify entrypoint can serve the root without database configuration', async () => {
+test('The actual Netlify entrypoint can reject an invalid query without database configuration', async () => {
   const context = {};
-  const response = await require('../netlify/functions/api').handler(event('/'), context);
-  assert.equal(response.statusCode, 200);
+  const response = await require('../netlify/functions/api').handler(event('/api/ingredients?storage=invalid'), context);
+  assert.equal(response.statusCode, 400);
   assert.equal(context.callbackWaitsForEmptyEventLoop, false);
+});
+
+test('POST inserts only validated fields, trims text, and converts expiry to a UTC Date', async () => {
+  let written;
+  const handle = serverless(createApp(async () => ({
+    async insertOne(record) { written = record; return { insertedId: 'created-id' }; }
+  })));
+  const response = await handle(event('/api/ingredients', 'POST', {
+    name: '  Test ingredient  ', quantity: 1.5, unit: '  grams  ', storage: 'pantry',
+    expiryDate: '2028-02-29', _id: 'untrusted-id', extra: 'ignored'
+  }), {});
+  assert.equal(response.statusCode, 201);
+  assert.deepEqual(written, { name: 'Test ingredient', quantity: 1.5, unit: 'grams', storage: 'pantry', expiryDate: new Date('2028-02-29T00:00:00.000Z') });
+  assert.deepEqual(JSON.parse(response.body), { ...written, expiryDate: '2028-02-29T00:00:00.000Z', _id: 'created-id' });
+});
+
+test('POST stores missing or empty expiry dates as null', async () => {
+  const records = [];
+  const handle = serverless(createApp(async () => ({
+    async insertOne(record) { records.push(record); return { insertedId: 'created-id' }; }
+  })));
+  for (const expiry of [{}, { expiryDate: '' }, { expiryDate: null }]) {
+    const response = await handle(event('/api/ingredients', 'POST', { name: 'Test', quantity: 2, unit: 'pieces', storage: 'fridge', ...expiry }), {});
+    assert.equal(response.statusCode, 201);
+    assert.equal(records.at(-1).expiryDate, null);
+  }
+});
+
+test('POST rejects invalid fields before making any database request', async () => {
+  const handle = serverless(createApp(async () => { assert.fail('Invalid inputs must not reach the database'); }));
+  const valid = { name: 'Test', quantity: 1, unit: 'pieces', storage: 'fridge' };
+  for (const body of [
+    undefined, null, [], {}, { ...valid, name: ' ' }, { ...valid, name: {} }, { ...valid, name: 'x'.repeat(101) },
+    { ...valid, quantity: 0 }, { ...valid, quantity: -1 }, { ...valid, quantity: '2' }, { ...valid, quantity: null },
+    { ...valid, unit: '' }, { ...valid, unit: ['pieces'] }, { ...valid, unit: 'x'.repeat(41) },
+    { ...valid, storage: 'cupboard' }, { ...valid, storage: { $ne: null } },
+    ...['2026-02-29', '2026-04-31', '2026-13-01', '0000-01-01', '2026-01-01T12:00:00Z', 'yesterday', 123].map(expiryDate => ({ ...valid, expiryDate }))
+  ]) {
+    const response = await handle(event('/api/ingredients', 'POST', body), {});
+    assert.equal(response.statusCode, 400);
+    assert.equal(typeof JSON.parse(response.body).error, 'string');
+  }
+});
+
+test('POST returns helpful 400 responses for malformed or oversized JSON', async () => {
+  const handle = serverless(createApp(async () => { assert.fail('Invalid JSON must not reach the database'); }));
+  for (const body of ['{"name":', JSON.stringify({ name: 'x'.repeat(11000) })]) {
+    const request = event('/api/ingredients', 'POST', {});
+    request.body = body;
+    const response = await handle(request, {});
+    assert.equal(response.statusCode, 400);
+    assert.equal(typeof JSON.parse(response.body).error, 'string');
+  }
 });

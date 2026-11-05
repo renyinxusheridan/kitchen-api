@@ -2,6 +2,7 @@
 const path = require('node:path');
 require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 const { createApp } = require('./app');
+const express = require('express');
 const { getDatabase, close, connectionErrorMessage } = require('./db');
 
 async function start() {
@@ -15,7 +16,10 @@ async function start() {
   try {
     const db = await getDatabase();
     await db.command({ ping: 1 });
-    const server = createApp().listen(port, '127.0.0.1', () => {
+    const app = express();
+    app.use(express.static(path.join(__dirname, 'public')));
+    app.use(createApp());
+    const server = app.listen(port, '127.0.0.1', () => {
       console.log('Connected to MongoDB.');
       console.log('Kitchen API: http://localhost:' + port);
     });

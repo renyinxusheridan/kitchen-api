@@ -1,13 +1,13 @@
 {
   "name": "kitchen-api",
   "version": "1.0.0",
-  "description": "Read-only kitchen ingredient API for local Express and Netlify Functions",
+  "description": "Kitchen ingredient inventory with a plain JavaScript interface and Read/Create API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "netlify dev",
-    "build": "node --check app.js && node --check db.js && node --check netlify/functions/api.js",
-    "test": "node --test",
+    "build": "node --check app.js && node --check db.js && node --check server.js && node --check netlify/functions/api.js && node --check public/app.js",
+    "test": "node --test test/*.test.js",
     "verify:api": "node scripts/verify-api.js"
   },
   "keywords": [],
