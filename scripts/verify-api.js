@@ -35,8 +35,13 @@ async function verify() {
   assert.equal(invalidCreate.status, 400);
   assert.equal(typeof (await invalidCreate.json()).error, 'string');
   assert.equal((await fetch(new URL('/api/ingredients', base), { method: 'DELETE' })).status, 404);
+  for (const method of ['PUT', 'DELETE']) {
+    const invalidId = await fetch(new URL('/api/ingredients/invalid-id', base), { method });
+    assert.equal(invalidId.status, 400);
+    assert.equal(typeof (await invalidId.json()).error, 'string');
+  }
   console.log(JSON.stringify({ all: all.count, eggs: eggs.count, fridge: fridge.count }));
-  console.log('PASS: ingredient reads, both filters, repeat invocation, invalid create/storage, and rejection of DELETE. No records were created by this check.');
+  console.log('PASS: ingredient reads, both filters, repeat invocation, invalid create/storage, malformed update/delete IDs, and rejection of deletion without an ID. No records were changed.');
 }
 
 verify().catch(() => {

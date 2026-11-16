@@ -5,6 +5,166 @@ const { createHarness, flush } = require('./frontend-harness.cjs');
 const reply = (body, ok = true) => ({ ok, async json() { return body; } });
 const sample = { _id: 'sample', name: '<img src=x onerror=alert(1)>', quantity: 2, unit: 'pieces', storage: 'fridge', expiryDate: '2026-12-31T00:00:00.000Z' };
 
+function button(node, text) {
+  if (node.textContent === text && node.listeners.click) return node;
+  for (const child of node.children) {
+    const match = button(child, text);
+    if (match) return match;
+  }
+}
+
+test('An older refresh cannot replace cards during an edit or a deletion confirmation', async () => {
+  for (const action of ['Edit', 'Delete']) {
+    let reads = 0;
+    let finishRefresh;
+    const h = createHarness(async () => ++reads === 1 ? reply({ ingredients: [sample] }) : new Promise(resolve => { finishRefresh = resolve; }));
+    await flush();
+    const refreshing = h.nodes['refresh-button'].listeners.click();
+    button(h.nodes['ingredient-cards'], action).listeners.click();
+    finishRefresh(reply({ ingredients: [] }));
+    await refreshing;
+    assert.equal(h.nodes['ingredient-cards'].children.length, 1);
+    assert.equal(h.nodes['ingredient-list'].attributes['aria-busy'], 'false');
+    assert.equal(h.nodes['list-message'].textContent, '');
+    if (action === 'Edit') assert.equal(h.form.elements.name.value, sample.name);
+    else assert.ok(button(h.nodes['ingredient-cards'], 'Confirm delete'));
+  }
+});
+
+test('Edit prefills all five fields and Cancel returns to Create without writing', async () => {
+  let requests = 0;
+  const h = createHarness(async () => { requests++; return reply({ ingredients: [sample] }); });
+  await flush();
+  button(h.nodes['ingredient-cards'], 'Edit').listeners.click();
+  assert.equal(h.form.elements.name.value, sample.name);
+  assert.equal(h.form.elements.quantity.value, sample.quantity);
+  assert.equal(h.form.elements.unit.value, sample.unit);
+  assert.equal(h.form.elements.storage.value, sample.storage);
+  assert.equal(h.form.elements.expiryDate.value, '2026-12-31');
+  assert.equal(h.nodes['save-button'].textContent, 'Save changes');
+  h.form.elements.name.value = 'Cancelled edit';
+  await h.nodes['refresh-button'].listeners.click();
+  h.nodes['cancel-edit-button'].listeners.click();
+  assert.equal(requests, 1);
+  assert.equal(h.form.elements.name.value, '');
+  assert.equal(h.nodes['cancel-edit-button'].hidden, true);
+  assert.equal(h.nodes['add-heading'].textContent, 'Add an ingredient');
+  assert.ok(h.nodes['ingredient-cards'].textContent.includes(sample.name));
+});
+
+test('Edit sends one PUT, blocks conflicting actions, and displays saved fields after a reload', async () => {
+  let finish;
+  let record = sample;
+  const puts = [];
+  const fetch = async (url, options) => {
+    if (options.method === 'PUT') {
+      puts.push({ url, options });
+      return new Promise(resolve => { finish = resolve; });
+    }
+    return reply({ ingredients: [record] });
+  };
+  const h = createHarness(fetch);
+  await flush();
+  button(h.nodes['ingredient-cards'], 'Edit').listeners.click();
+  Object.entries({ name: 'Updated', quantity: '4.5', unit: 'grams', storage: 'freezer', expiryDate: '' }).forEach(([key, value]) => { h.form.elements[key].value = value; });
+  const first = h.submit();
+  await h.submit();
+  h.nodes['cancel-edit-button'].listeners.click();
+  await h.nodes['refresh-button'].listeners.click();
+  assert.equal(h.nodes['save-button'].textContent, 'Saving…');
+  assert.equal(h.form.elements.name.disabled, true);
+  assert.equal(button(h.nodes['ingredient-cards'], 'Delete').disabled, true);
+  assert.equal(puts.length, 1);
+  assert.equal(puts[0].url, '/api/ingredients/sample');
+  const body = JSON.parse(puts[0].options.body);
+  assert.deepEqual(body, { name: 'Updated', quantity: 4.5, unit: 'grams', storage: 'freezer', expiryDate: null });
+  record = { ...body, _id: sample._id };
+  finish(reply(record));
+  await first;
+  assert.match(h.nodes['form-message'].textContent, /Updated.*saved/);
+  assert.equal(h.form.elements.name.disabled, false);
+  const reloaded = createHarness(fetch);
+  await flush();
+  for (const text of ['Updated', '4.5', 'grams', 'Freezer', 'Not set']) assert.ok(reloaded.nodes['ingredient-cards'].textContent.includes(text));
+});
+
+test('Edit failures retain every entered value and allow retrying the same record', async () => {
+  for (const failure of ['server', 'network', 'json']) {
+    let fail = true;
+    let putCount = 0;
+    const h = createHarness(async (url, options) => {
+      if (options.method !== 'PUT') return reply({ ingredients: [sample] });
+      putCount++;
+      if (!fail) return reply({ ...sample, name: 'Keep me' });
+      if (failure === 'network') throw new TypeError('offline');
+      if (failure === 'json') return { ok: false, json() { throw new SyntaxError('invalid'); } };
+      return reply({ error: 'Unable to save the ingredient.' }, false);
+    });
+    await flush();
+    button(h.nodes['ingredient-cards'], 'Edit').listeners.click();
+    const entered = { name: 'Keep me', quantity: '3', unit: 'bags', storage: 'pantry', expiryDate: '2028-02-29' };
+    for (const [key, value] of Object.entries(entered)) h.form.elements[key].value = value;
+    await h.submit();
+    for (const [key, value] of Object.entries(entered)) assert.equal(h.form.elements[key].value, value);
+    assert.equal(h.nodes['form-message'].className, 'form-message error');
+    assert.equal(h.nodes['save-button'].disabled, false);
+    assert.equal(h.nodes['save-button'].textContent, 'Save changes');
+    assert.equal(h.form.resetCount, undefined);
+    assert.ok(h.nodes['ingredient-cards'].textContent.includes(sample.name));
+    fail = false;
+    await h.submit();
+    assert.equal(putCount, 2);
+    assert.match(h.nodes['form-message'].textContent, /saved/);
+  }
+});
+
+test('Delete names the ingredient, supports cancellation, waits for success, and prevents repeats', async () => {
+  let finish;
+  let deletes = 0;
+  const other = { ...sample, _id: 'other', name: 'Preserved ingredient' };
+  const h = createHarness(async (url, options) => {
+    if (options.method !== 'DELETE') return reply({ ingredients: [sample, other] });
+    assert.equal(url, '/api/ingredients/sample');
+    deletes++;
+    return new Promise(resolve => { finish = resolve; });
+  });
+  await flush();
+  button(h.nodes['ingredient-cards'], 'Delete').listeners.click();
+  assert.ok(h.nodes['ingredient-cards'].textContent.includes('Delete “' + sample.name + '”?'));
+  button(h.nodes['ingredient-cards'], 'Cancel').listeners.click();
+  assert.equal(deletes, 0);
+  button(h.nodes['ingredient-cards'], 'Delete').listeners.click();
+  const confirm = button(h.nodes['ingredient-cards'], 'Confirm delete');
+  const first = confirm.listeners.click();
+  await confirm.listeners.click();
+  await h.submit();
+  assert.equal(deletes, 1);
+  assert.equal(confirm.textContent, 'Deleting…');
+  assert.equal(h.nodes['ingredient-cards'].children.length, 2);
+  finish(reply(null));
+  await first;
+  assert.equal(h.nodes['ingredient-cards'].children.length, 1);
+  assert.ok(h.nodes['ingredient-cards'].textContent.includes(other.name));
+  assert.equal(h.nodes['ingredient-count'].textContent, '1');
+  assert.match(h.nodes['operation-message'].textContent, /Deleted/);
+});
+
+test('Delete failure keeps the card and supports retry; deleting the last card shows empty state', async () => {
+  let fail = true;
+  const h = createHarness(async (url, options) => options.method === 'DELETE'
+    ? reply({ error: 'Unable to delete the ingredient.' }, !fail) : reply({ ingredients: [sample] }));
+  await flush();
+  button(h.nodes['ingredient-cards'], 'Delete').listeners.click();
+  await button(h.nodes['ingredient-cards'], 'Confirm delete').listeners.click();
+  assert.equal(h.nodes['ingredient-cards'].children.length, 1);
+  assert.equal(h.nodes['operation-message'].className, 'form-message error');
+  assert.equal(button(h.nodes['ingredient-cards'], 'Confirm delete').disabled, false);
+  fail = false;
+  await button(h.nodes['ingredient-cards'], 'Confirm delete').listeners.click();
+  assert.equal(h.nodes['ingredient-count'].textContent, '0');
+  assert.match(h.nodes['list-message'].textContent, /first ingredient/);
+});
+
 test('Frontend shows loading, then empty state, and clears busy state', async () => {
   let resolve;
   const h = createHarness(() => new Promise(done => { resolve = done; }));

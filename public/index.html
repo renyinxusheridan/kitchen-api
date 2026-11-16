@@ -16,7 +16,7 @@
       </span>
       Kitchen inventory
     </div>
-    <span class="activity-tag">Class activity · Read &amp; Create</span>
+    <span class="activity-tag">Class activity · Kitchen inventory</span>
   </header>
 
   <main>
@@ -62,6 +62,7 @@
             <input id="expiryDate" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
           </div>
           <button class="button primary" id="save-button" type="submit"><span aria-hidden="true">+</span> Add ingredient</button>
+          <button class="button secondary cancel-edit" id="cancel-edit-button" type="button" hidden>Cancel</button>
           <p id="form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
         </form>
         <p class="persistence-note"><span aria-hidden="true">✓</span> Saved ingredients stay here when you reload.</p>
@@ -73,6 +74,7 @@
           <button id="refresh-button" class="button secondary" type="button">Refresh list</button>
         </div>
         <p class="inventory-note">A little less guessing next time you open the fridge.</p>
+        <p id="operation-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
         <div id="ingredient-list" aria-busy="true">
           <p id="list-message" class="list-message" role="status" aria-live="polite">Loading your ingredients…</p>
           <ul id="ingredient-cards" class="ingredient-grid" aria-label="Ingredients"></ul>

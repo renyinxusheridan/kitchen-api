@@ -35,6 +35,15 @@ input:focus,select:focus{border-color:var(--green);outline:3px solid #27684e20}
 .secondary{background:var(--white);border:1px solid var(--border);color:var(--ink);white-space:nowrap}
 .secondary:hover{background:#edf3ea}
 .button:disabled{opacity:.6;cursor:wait}
+[hidden]{display:none!important}
+.cancel-edit{width:100%;margin-top:10px}
+.card-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.card-actions .button{flex:1}
+.danger{color:var(--red);border-color:#dbbcbc}
+.danger:hover{background:#fff6f4}
+.delete-confirmation{border-top:1px solid var(--border);margin-top:16px;padding-top:12px}
+.delete-confirmation p{font-size:.8rem;margin:0;overflow-wrap:anywhere}
+#operation-message:not(:empty){margin:0 0 16px}
 .form-message{font-size:.8rem;margin:12px 0 0;overflow-wrap:anywhere}
 .form-message:empty{display:none}
 .success{color:#206142}

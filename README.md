@@ -1,21 +1,26 @@
-# Kitchen inventory — Read & Create
+# Kitchen inventory
 
-A plain HTML, CSS, and JavaScript interface for the class activity **Collecting Data From Users and Displaying It Back to Them**. Ingredients are read from and saved to `kitchen_app.ingredients` in MongoDB.
+A plain HTML, CSS, and JavaScript interface backed by Express and MongoDB (`kitchen_app.ingredients`). The local server and Netlify Function share the same API.
 
-## Use the interface locally
-
-Your existing `.env` is already configured. Keep it private and out of Git. No new packages are required for this interface.
+## Run locally
 
 ```sh
-cd ~/Desktop/kitchen-api
+npm ci
 npm start
 ```
 
-Open **http://localhost:3000/**. The page displays the ingredient list and an Add an ingredient form. Fill in the visible labels and press **Add ingredient**. While saving, the button is disabled. A successful save resets the form, shows confirmation, and refreshes the list. Reloading reads the same saved ingredient back from MongoDB.
+Open **http://localhost:3000/**. Keep the existing `.env` private. For a new checkout, copy `.env.example` to `.env` and privately configure `MONGODB_URI`, `DB_NAME=kitchen_app`, and `PORT=3000`. Node 24 is selected for deployment; Node 24 and 26 are supported locally.
 
-Name, a positive numeric quantity, unit, and storage are required. Storage accepts fridge, freezer, or pantry. Expiry date is optional. Loading, empty, and error states appear in the list; **Refresh list** retries a failed read. Validation errors leave your entered form values intact.
+## Use the inventory
 
-For a fresh checkout, run `npm ci`, copy `.env.example` to `.env`, and replace its placeholders privately. Use `kitchen_app` for DB_NAME and `3000` for PORT. URL-encode reserved characters in database credentials. Node 24 is selected for deployment by `.node-version`; Node 24 and 26 are allowed locally.
+- **Create:** complete the form and choose **Add ingredient**. A successful save resets the form and refreshes the list.
+- **Read:** ingredients load on opening the page. **Refresh list** retries a failed read; existing cards remain visible while refreshing.
+- **Edit:** choose **Edit** on a card. The existing form opens with its name, quantity, unit, storage, and optional expiry prefilled. Choose **Save changes** or **Cancel**. Clearing the expiry removes the saved date.
+- **Delete:** choose **Delete** on a card. An inline confirmation names the ingredient; choose **Confirm delete** or **Cancel**. The card is removed only after the API confirms database success.
+
+Saving, deleting, success, and error feedback is displayed. Conflicting actions and repeated submissions are blocked while a write is pending. Failed saves preserve all entered values and keep the form in Edit mode for retry. After an ambiguous connection failure, cancel and refresh before retrying to check the saved state.
+
+The original styling and responsive layout are retained. Quantities and units are stored as entered; there is no unit conversion, name-based matching, or automatic merging. Updating uses only the selected ID and preserves extra stored fields.
 
 ## API
 
@@ -24,9 +29,11 @@ For a fresh checkout, run `npm ci`, copy `.env.example` to `.env`, and replace i
 | `GET /api/ingredients` | Returns `count`, `limit: 100`, and ingredients sorted by name |
 | `GET /api/ingredients?name=eggs` | Case-insensitive literal name search |
 | `GET /api/ingredients?storage=fridge` | Storage filter; can be combined with name |
-| `POST /api/ingredients` | Validates JSON, inserts one record, and returns HTTP 201 with that record |
+| `POST /api/ingredients` | Validates and inserts one record; returns HTTP 201 and the saved record |
+| `PUT /api/ingredients/:id` | Validates and updates the selected record; returns HTTP 200 and the saved record |
+| `DELETE /api/ingredients/:id` | Deletes the selected record; returns HTTP 204 with no body |
 
-Example POST body (Content-Type: application/json):
+POST and PUT accept the same JSON body with `Content-Type: application/json`:
 
 ```json
 {
@@ -34,78 +41,42 @@ Example POST body (Content-Type: application/json):
   "quantity": 2,
   "unit": "pieces",
   "storage": "fridge",
-  "expiryDate": "2026-12-31"
+  "expiryDate": "2028-02-29"
 }
 ```
 
-Names and units are trimmed. Name accepts 1–100 characters and unit accepts 1–40. Quantity must be a finite JSON number greater than zero, not a numeric string. Expiry accepts a real `YYYY-MM-DD` date; it is converted to a MongoDB Date at midnight UTC. An omitted, empty, or null expiry is stored as null. Invalid input or JSON returns HTTP 400 with an `error` message. Unexpected database failures return a generic HTTP 500 response without credentials or internal driver details. Only the five ingredient fields are inserted; client-supplied `_id` and other extra fields are ignored.
+Both routes require all fields except expiry. Names and units are trimmed; name accepts 1–100 characters and unit 1–40. Quantity must be a finite JSON number greater than zero. Storage must be `fridge`, `freezer`, or `pantry`. Expiry accepts a real `YYYY-MM-DD` date stored as a BSON Date at midnight UTC; omitted, null, or empty expiry is stored as null.
 
-No update, delete, authentication, recipes, or other features are included. On a public deployment, visitors can read and add ingredients through these routes.
+PUT uses `$set` for only these five fields and does not upsert, replace the document, or change its `_id`. Client-supplied extra fields are ignored. DELETE uses `deleteOne` with exactly the selected `_id`. IDs must be 24 hexadecimal characters. Invalid fields, IDs, malformed JSON, or oversized JSON return HTTP 400. A valid ID with no matching record returns HTTP 404. Unexpected database errors return action-specific HTTP 500 messages; credentials and driver details stay private.
 
-## Files and routing
-
-- `public/index.html`, `public/styles.css`, and `public/app.js`: responsive interface, accessible labels, relative `/api/...` fetch calls, and safe text rendering.
-- `app.js`: shared Express GET and POST routes with server-side validation.
-- `server.js`: local `.env` loading, connection startup, static file serving from `public/`, and API listening.
-- `db.js`: one cached MongoClient connection promise per local process or warm Function instance. A failed initial attempt can be retried.
-- `netlify/functions/api.js`: Express adapter using `serverless-http`; no listening port is opened inside a Function.
-- `netlify.toml`: publishes `public/` and rewrites only `/api/*` to the Function. The old forced `/` rewrite was removed so Netlify serves `public/index.html` at the homepage.
-- `.gitignore`: excludes `.env`, other local environment files, `node_modules/`, and `.netlify/`. The source directory `netlify/`, `netlify.toml`, and placeholder-only `.env.example` remain included.
-
-This follows the [Netlify Express guide](https://docs.netlify.com/build/frameworks/framework-setup-guides/express/). The Function continues using your existing server-side environment variables; database credentials are never sent to browser JavaScript.
-
-## Test locally
+## Verification
 
 ```sh
 npm test
 npm run build
-```
-
-Tests use fake collections and a small DOM adapter, so they do not write to your database. They cover API filters and validation, JSON errors, Date/null handling, connection reuse and retry, loading/empty/error states, field rendering, disabled submit state, duplicate-submit prevention, form reset, success, and form errors.
-
-To test Netlify routing locally:
-
-```sh
 npm run dev -- --offline --no-open
 ```
 
-Open **http://localhost:8888/**. Netlify Dev reads local `.env`; offline mode avoids account linking and publishing while the API can still contact Atlas.
-
-In another terminal:
+Netlify Dev serves **http://localhost:8888/** and loads `.env` without publishing. In another terminal:
 
 ```sh
 npm run verify:api -- http://localhost:8888
 ```
 
-This checks the three existing GET URLs, both filters, a repeat read, rejection of invalid create input, and rejection of DELETE. It does not create records. It expects the original sample data to include eggs and fridge ingredients.
+The automated tests use fake collections and a DOM adapter running the real frontend script; they never access Atlas. They cover Create/Read behavior, shared POST/PUT validation, expiry Date/null handling, ObjectId validation, single-record writes, missing records, database failures, connection reuse, edit prefilling/cancel/retry, deletion confirmation/cancel/timing, duplicate prevention, and stale refresh protection.
 
-The actual create verification for this update was **local**, using Netlify Dev and Atlas. Exactly one clearly labelled ingredient was added by the automated check: **TEST — Class activity (2026-11-05)**, quantity 1, unit test item, storage pantry, expiry 2026-12-31. The real frontend script was exercised with a DOM adapter against the actual API: HTTP 201, one POST despite a repeated submit, form reset, success, refreshed list, and persistence in a fresh page instance were verified. The browser displayed the real ingredient cards and a successful form save, and a real browser reload showed the labelled test ingredient. Browser automation was interrupted during form interaction, so the automated create check did not depend on browser controls.
+The read-only `verify:api` script checks filters, repeated reads, invalid create input, malformed update/delete IDs, and rejection of deletion without an ID. It changes no records and expects the existing sample data to contain eggs and fridge ingredients.
 
-The test ingredient was left in MongoDB. A direct database comparison confirmed all six original documents remained unchanged and the test expiry is stored as a BSON Date. Another record added during browser use was preserved too. Local `.env` was unchanged. This update has **not** been verified on the live Netlify deployment.
+Local verification on **November 15, 2026** used exactly one newly created disposable record, **DISPOSABLE CRUD TEST 2026-11-15**. The original Create form created it in Chrome. The real frontend script saved changes to all five fields through the local API; a real Chrome reload showed the saved name, quantity, unit, storage, and expiry, and Edit prefilled those saved values. A direct MongoDB read confirmed the expiry was a BSON Date.
 
-## Publish this update to your existing Netlify site
+The same disposable record was then edited through Netlify Dev to clear expiry and deleted through its actual Function/redirect path. Named confirmation, cancellation, repeated-submit prevention, removal after success, and absence after a fresh page load passed. A BSON-aware before/after comparison confirmed all **9 pre-existing documents remained unchanged**. The disposable record was removed. No pre-existing test/sample records were edited or deleted.
 
-Your GitHub repository is already configured as `origin`: https://github.com/renyinxusheridan/kitchen-api.
+## Netlify deployment
 
-1. Review the changes, then commit the interface, route, tests, and documentation:
+The repository's `main` branch is connected to the existing Netlify site at https://coruscating-caramel-2abd72.netlify.app/. Pushing changes to `main` triggers deployment. Check the latest deployment's commit and published status before testing the live interface.
 
-```sh
-git status --short
-git add app.js server.js netlify.toml package.json public/index.html public/styles.css public/app.js scripts/verify-api.js test/api.test.js test/frontend.test.js test/frontend-harness.cjs README.md
-git diff --cached --name-only
-git commit -m "Add ingredient form and Read/Create API"
-git push origin main
-```
+Existing settings are unchanged: build command `npm run build`, publish directory `public`, Functions directory `netlify/functions`, and `/api/*` redirects to the Express Function. Browser requests remain relative `/api/...` URLs. MongoDB connections are cached per process or warm Function instance. `.env` and `.netlify/` remain excluded from Git.
 
-2. If your existing Netlify site is connected to this repository's main branch, the push starts a deployment. In **Deploys**, wait for it to finish. The existing settings remain: build command `npm run build`, publish directory `public`, Functions directory `netlify/functions`.
-3. Confirm **Project configuration → Environment variables** has `MONGODB_URI` and `DB_NAME=kitchen_app` for the Production context and Functions scope (or All scopes if your plan does not offer scope controls). Do not add PORT or upload `.env`. If you change environment values, trigger a new deploy. See [Netlify Functions environment variables](https://docs.netlify.com/build/functions/environment-variables/).
-4. Open your actual Netlify site at `/`, preferably in a private browser window, and confirm the form and list load. Also check the original API paths. If the project is private, use **Make public** or the project's visibility settings when you are ready for public access.
-5. Run the safe read/validation check on your real hostname:
+To deploy after review, commit the changes and push to the branch connected to the existing Netlify site. Keep `MONGODB_URI` and `DB_NAME=kitchen_app` in the Netlify Functions environment. Never upload `.env` or put database credentials in browser code. Local verification does not verify the hosted environment.
 
-```sh
-npm run verify:api -- https://YOUR-PROJECT.netlify.app
-```
-
-6. To verify live creating too, add a clearly labelled **LIVE TEST** ingredient through the deployed form and reload. A local result does not verify Netlify's hosted network or database permissions. No live write was performed during this implementation.
-
-The local create succeeded, so the current local database user can insert ingredients. No Atlas changes were needed for local testing. If the deployed site uses different credentials or cannot reach Atlas, inspect the `api` Function logs before changing anything. A missing environment variable, bad credential, or network restriction requires a different fix. Keep any credential changes private and update both local and Netlify environment values when rotating a password.
+For live write verification, create a new clearly labelled disposable record, edit only that record, reload to confirm persistence, then delete only that record after checking its name. Compare the existing records before and after. Preserve every pre-existing record, including older sample and test records.

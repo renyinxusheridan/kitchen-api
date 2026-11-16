@@ -1,7 +1,7 @@
 {
   "name": "kitchen-api",
   "version": "1.0.0",
-  "description": "Kitchen ingredient inventory with a plain JavaScript interface and Read/Create API",
+  "description": "Kitchen ingredient inventory with a plain JavaScript interface and Create/Read/Update/Delete API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

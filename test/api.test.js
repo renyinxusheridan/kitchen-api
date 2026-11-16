@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const serverless = require('serverless-http');
 const { createApp } = require('../app');
 const { createDatabaseConnection, connectionErrorMessage } = require('../db');
+const { ObjectId } = require('mongodb');
 
 function event(path, method = 'GET', body) {
   const url = new URL(path, 'http://localhost');
@@ -33,7 +34,93 @@ test('Function adapter preserves ingredient paths and filters', async () => {
   }
 });
 
-test('Invalid queries and update/delete methods never reach MongoDB', async () => {
+const ingredientId = '507f1f77bcf86cd799439011';
+const validEdit = { name: '  Edited test  ', quantity: 3.5, unit: '  grams  ', storage: 'freezer', expiryDate: '2028-02-29' };
+
+test('PUT updates only the selected ID and five allowed fields, without upsert or replacement', async () => {
+  const handle = serverless(createApp(async () => ({
+    async findOneAndUpdate(filter, update, options) {
+      assert.ok(filter._id instanceof ObjectId);
+      assert.equal(filter._id.toHexString(), ingredientId);
+      assert.deepEqual(update, { $set: { name: 'Edited test', quantity: 3.5, unit: 'grams', storage: 'freezer', expiryDate: new Date('2028-02-29T00:00:00.000Z') } });
+      assert.deepEqual(options, { returnDocument: 'after', upsert: false });
+      return { _id: filter._id, ...update.$set, preserved: true };
+    }
+  })));
+  const response = await handle(event('/api/ingredients/' + ingredientId, 'PUT', { ...validEdit, _id: 'untrusted', $set: { quantity: 999 }, extra: true }), {});
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body)._id, ingredientId);
+  assert.equal(JSON.parse(response.body).preserved, true);
+});
+
+test('PUT can clear expiry and accepts a successful unchanged update', async () => {
+  const handle = serverless(createApp(async () => ({
+    async findOneAndUpdate(filter, update) {
+      assert.equal(update.$set.expiryDate, null);
+      return { _id: filter._id, ...update.$set };
+    }
+  })));
+  for (const expiryDate of [undefined, null, '']) {
+    const response = await handle(event('/api/ingredients/' + ingredientId, 'PUT', { ...validEdit, expiryDate }), {});
+    assert.equal(response.statusCode, 200);
+    assert.equal(JSON.parse(response.body).expiryDate, null);
+  }
+});
+
+test('PUT and DELETE reject malformed IDs before accessing MongoDB', async () => {
+  const handle = serverless(createApp(async () => { assert.fail('Invalid ID reached database'); }));
+  for (const id of ['invalid', '507f1f77bcf86cd79943901', 'z'.repeat(24), '%7B%22%24ne%22%3Anull%7D']) {
+    for (const method of ['PUT', 'DELETE']) {
+      assert.equal((await handle(event('/api/ingredients/' + id, method, validEdit), {})).statusCode, 400);
+    }
+  }
+});
+
+test('PUT and DELETE return 404 for a missing record', async () => {
+  const handle = serverless(createApp(async () => ({
+    async findOneAndUpdate() { return null; },
+    async deleteOne() { return { deletedCount: 0 }; }
+  })));
+  for (const method of ['PUT', 'DELETE']) {
+    const response = await handle(event('/api/ingredients/' + ingredientId, method, validEdit), {});
+    assert.equal(response.statusCode, 404);
+    assert.match(JSON.parse(response.body).error, /not found/);
+  }
+});
+
+test('DELETE targets exactly one ObjectId and waits for database success', async () => {
+  let finish;
+  const handle = serverless(createApp(async () => ({
+    deleteOne(filter) {
+      assert.deepEqual(Object.keys(filter), ['_id']);
+      assert.equal(filter._id.toHexString(), ingredientId);
+      return new Promise(resolve => { finish = resolve; });
+    }
+  })));
+  let settled = false;
+  const response = handle(event('/api/ingredients/' + ingredientId, 'DELETE'), {}).then(result => { settled = true; return result; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  finish({ deletedCount: 1 });
+  assert.equal((await response).statusCode, 204);
+  assert.equal((await response).body, '');
+});
+
+test('Mutation failures return action-specific errors without exposing database details', async (t) => {
+  const logs = [];
+  t.mock.method(console, 'error', message => logs.push(message));
+  const handle = serverless(createApp(async () => { throw new Error('private-marker'); }));
+  for (const [method, action] of [['POST', 'save'], ['PUT', 'save'], ['DELETE', 'delete']]) {
+    const path = '/api/ingredients' + (method === 'POST' ? '' : '/' + ingredientId);
+    const response = await handle(event(path, method, validEdit), {});
+    assert.equal(response.statusCode, 500);
+    assert.match(JSON.parse(response.body).error, new RegExp('Unable to ' + action));
+    assert.ok(!response.body.includes('private-marker'));
+  }
+  assert.ok(!logs.join().includes('private-marker'));
+});
+
+test('Invalid queries and mutation methods without an ID never reach MongoDB', async () => {
   const handle = serverless(createApp(async () => { assert.fail('Database should not be accessed'); }));
   for (const path of ['/api/ingredients?storage=invalid', '/api/ingredients?name=', '/api/ingredients?name=eggs&name=rice']) {
     assert.equal((await handle(event(path), {})).statusCode, 400);
@@ -129,7 +216,7 @@ test('POST stores missing or empty expiry dates as null', async () => {
   }
 });
 
-test('POST rejects invalid fields before making any database request', async () => {
+test('POST and PUT reject invalid fields before making any database request', async () => {
   const handle = serverless(createApp(async () => { assert.fail('Invalid inputs must not reach the database'); }));
   const valid = { name: 'Test', quantity: 1, unit: 'pieces', storage: 'fridge' };
   for (const body of [
@@ -139,19 +226,23 @@ test('POST rejects invalid fields before making any database request', async () 
     { ...valid, storage: 'cupboard' }, { ...valid, storage: { $ne: null } },
     ...['2026-02-29', '2026-04-31', '2026-13-01', '0000-01-01', '2026-01-01T12:00:00Z', 'yesterday', 123].map(expiryDate => ({ ...valid, expiryDate }))
   ]) {
-    const response = await handle(event('/api/ingredients', 'POST', body), {});
-    assert.equal(response.statusCode, 400);
-    assert.equal(typeof JSON.parse(response.body).error, 'string');
+    for (const [path, method] of [['/api/ingredients', 'POST'], ['/api/ingredients/507f1f77bcf86cd799439011', 'PUT']]) {
+      const response = await handle(event(path, method, body), {});
+      assert.equal(response.statusCode, 400);
+      assert.equal(typeof JSON.parse(response.body).error, 'string');
+    }
   }
 });
 
-test('POST returns helpful 400 responses for malformed or oversized JSON', async () => {
+test('POST and PUT return helpful 400 responses for malformed or oversized JSON', async () => {
   const handle = serverless(createApp(async () => { assert.fail('Invalid JSON must not reach the database'); }));
   for (const body of ['{"name":', JSON.stringify({ name: 'x'.repeat(11000) })]) {
-    const request = event('/api/ingredients', 'POST', {});
-    request.body = body;
-    const response = await handle(request, {});
-    assert.equal(response.statusCode, 400);
-    assert.equal(typeof JSON.parse(response.body).error, 'string');
+    for (const [path, method] of [['/api/ingredients', 'POST'], ['/api/ingredients/507f1f77bcf86cd799439011', 'PUT']]) {
+      const request = event(path, method, {});
+      request.body = body;
+      const response = await handle(request, {});
+      assert.equal(response.statusCode, 400);
+      assert.equal(typeof JSON.parse(response.body).error, 'string');
+    }
   }
 });

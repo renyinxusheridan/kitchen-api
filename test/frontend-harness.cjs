@@ -13,10 +13,11 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = value; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   setCustomValidity(message) { this.validationMessage = message; }
+  focus() { this.focused = true; }
 }
 
 function createHarness(fetch) {
-  const nodes = Object.fromEntries(['ingredient-form', 'save-button', 'form-message', 'refresh-button', 'ingredient-list', 'list-message', 'ingredient-cards', 'ingredient-count'].map(id => [id, new Element()]));
+  const nodes = Object.fromEntries(['ingredient-form', 'save-button', 'form-message', 'refresh-button', 'ingredient-list', 'list-message', 'ingredient-cards', 'ingredient-count', 'cancel-edit-button', 'add-heading', 'operation-message'].map(id => [id, new Element()]));
   const form = nodes['ingredient-form'];
   form.elements = Object.fromEntries(['name', 'quantity', 'unit', 'storage', 'expiryDate'].map(name => [name, new Element()]));
   form.elements.storage.value = 'fridge';
