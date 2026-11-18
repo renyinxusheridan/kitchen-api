@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Plan what to buy and keep your shopping list in one place.">
+  <title>Shopping List · Kitchen inventory</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/shopping.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v6a3 3 0 0 0 6 0V3M8 3v18M19 21V3c-4 2-4 8 0 9"/></svg>
+      </span>
+      Kitchen inventory
+    </div>
+    <nav class="site-nav" aria-label="Main navigation">
+      <a href="/">My Kitchen</a>
+      <a href="/shopping.html" aria-current="page">Shopping List</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="intro">
+      <p class="eyebrow">A little planning ahead</p>
+      <h1>Your shopping list.</h1>
+      <p>Keep track of what you need for your next trip.</p>
+    </div>
+
+    <div class="workspace">
+      <section class="form-panel" aria-labelledby="shopping-form-heading">
+        <div class="section-intro">
+          <span class="step-mark" aria-hidden="true">+</span>
+          <div><h2 id="shopping-form-heading">Add a shopping item</h2><p>One less thing to remember at the store.</p></div>
+        </div>
+        <p class="form-hint">All fields are required.</p>
+        <form id="shopping-form">
+          <div class="field">
+            <label for="shopping-name">Name</label>
+            <input id="shopping-name" name="name" type="text" maxlength="100" placeholder="e.g. Cherry tomatoes" required>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="shopping-quantity">Planned quantity</label>
+              <input id="shopping-quantity" name="plannedQuantity" type="number" min="0" step="any" placeholder="e.g. 2" required aria-describedby="shopping-quantity-hint">
+            </div>
+            <div class="field">
+              <label for="shopping-unit">Unit</label>
+              <input id="shopping-unit" name="unit" type="text" maxlength="40" placeholder="e.g. bags" required aria-describedby="shopping-unit-hint">
+            </div>
+          </div>
+          <p id="shopping-quantity-hint" class="input-hint">Planned quantity must be greater than zero.</p>
+          <p id="shopping-unit-hint" class="input-hint">Use any unit that works for you, such as pieces, bags, or kg.</p>
+          <button class="button primary" id="shopping-save" type="submit"><span aria-hidden="true">+</span> Add shopping item</button>
+          <button class="button secondary cancel-edit" id="shopping-cancel-edit" type="button" hidden>Cancel</button>
+          <p id="shopping-form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        </form>
+        <p class="persistence-note"><span aria-hidden="true">✓</span> Your shopping list stays here when you reload.</p>
+      </section>
+
+      <section class="inventory-panel" aria-labelledby="shopping-heading">
+        <div class="inventory-header">
+          <div><p class="eyebrow">What you need</p><h2 id="shopping-heading">Shopping items <span id="shopping-count" class="count" aria-label="Shopping item count">—</span></h2></div>
+          <button id="shopping-refresh" class="button secondary" type="button">Refresh list</button>
+        </div>
+        <p class="inventory-note">A handy list for your next grocery trip.</p>
+        <p id="shopping-operation-message" class="form-message operation-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div id="shopping-list" aria-busy="true">
+          <p id="shopping-list-message" class="list-message" role="status" aria-live="polite">Loading your shopping list…</p>
+          <ul id="shopping-cards" class="ingredient-grid" aria-label="Shopping items"></ul>
+        </div>
+        <noscript><p class="list-message error">Enable JavaScript to load your shopping list and use the form.</p></noscript>
+      </section>
+    </div>
+    <footer>Collecting Data From Users and Displaying It Back to Them</footer>
+  </main>
+</body>
+</html>

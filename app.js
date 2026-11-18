@@ -1,6 +1,7 @@
 const express = require('express');
 const { ObjectId } = require('mongodb');
 const { getDatabase, connectionErrorMessage } = require('./db');
+const { createShoppingRouter } = require('./shopping');
 
 function validateIngredient(req, res, next) {
   const body = req.body;
@@ -42,6 +43,7 @@ function validateIngredient(req, res, next) {
 function createApp(getIngredients = async () => (await getDatabase()).collection('ingredients')) {
   const app = express();
   app.use(express.json({ limit: '10kb' }));
+  app.use('/api/shopping-items', createShoppingRouter());
 
   app.get('/api/ingredients', async (req, res, next) => {
     try {
@@ -124,11 +126,12 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
   });
 
   app.use((error, req, res, next) => {
+    const subject = /^\/api\/shopping-items(?:\/|$)/.test(req.path) ? 'Shopping item' : 'Ingredient';
     if (error.type === 'entity.parse.failed') {
-      return res.status(400).json({ error: 'Invalid JSON. Check the ingredient data and try again.' });
+      return res.status(400).json({ error: 'Invalid JSON. Check the ' + subject.toLowerCase() + ' data and try again.' });
     }
     if (error.type === 'entity.too.large') {
-      return res.status(400).json({ error: 'Ingredient data is too large. Keep the request under 10 KB.' });
+      return res.status(400).json({ error: subject + ' data is too large. Keep the request under 10 KB.' });
     }
     // Keep connection credentials and internal error details out of API responses.
     console.error(connectionErrorMessage(error));
