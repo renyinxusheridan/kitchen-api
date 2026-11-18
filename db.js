@@ -63,7 +63,15 @@ function createDatabaseConnection({ Client = MongoClient, env = process.env } = 
     connectionPromise = undefined;
   }
 
-  return { getDatabase, close };
+  async function withTransaction(work) {
+    const database = await getDatabase();
+    return client.withSession(session => session.withTransaction(
+      () => work(database, session),
+      { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, readPreference: 'primary' }
+    ));
+  }
+
+  return { getDatabase, close, withTransaction };
 }
 
 // One cache per Node process / warm Netlify Function instance.

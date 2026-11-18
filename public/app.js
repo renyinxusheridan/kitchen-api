@@ -19,9 +19,10 @@ let inventory = [];
 let cardButtons = [];
 let confirmationButton;
 let loadVersion = 0;
+let shoppingAction = null;
 
 function syncControls() {
-  const busy = saving || deleting;
+  const busy = saving || deleting || shoppingAction !== null;
   const active = busy || editing !== null || pendingDelete !== null;
   refreshButton.disabled = loading || active;
   saveButton.disabled = busy || pendingDelete !== null;
@@ -46,7 +47,7 @@ function finishEditing() {
 }
 
 function startEditing(ingredient) {
-  if (saving || deleting || editing || pendingDelete) return;
+  if (saving || deleting || editing || pendingDelete || shoppingAction) return;
   editing = ingredient;
   // Discard an older GET so it cannot replace cards while the form is open.
   ++loadVersion;
@@ -103,15 +104,18 @@ function ingredientCard(ingredient) {
   const actions = element('div', 'card-actions');
   const editButton = element('button', 'button secondary', 'Edit');
   const deleteButton = element('button', 'button secondary danger', 'Delete');
-  for (const button of [editButton, deleteButton]) {
+  const shoppingButton = element('button', 'button secondary', 'Add to shopping list');
+  for (const button of [editButton, deleteButton, shoppingButton]) {
     button.type = 'button';
     cardButtons.push(button);
   }
   editButton.setAttribute('aria-label', 'Edit ' + ingredient.name);
   deleteButton.setAttribute('aria-label', 'Delete ' + ingredient.name);
+  shoppingButton.setAttribute('aria-label', 'Add ' + ingredient.name + ' to shopping list');
+  shoppingButton.addEventListener('click', () => openShopping(ingredient));
   editButton.addEventListener('click', () => startEditing(ingredient));
   deleteButton.addEventListener('click', () => {
-    if (saving || deleting || editing || pendingDelete) return;
+    if (saving || deleting || editing || pendingDelete || shoppingAction) return;
     pendingDelete = ingredient;
     ++loadVersion;
     loading = false;
@@ -120,8 +124,9 @@ function ingredientCard(ingredient) {
     renderInventory();
     confirmationButton.focus();
   });
-  actions.append(editButton, deleteButton);
+  actions.append(editButton, deleteButton, shoppingButton);
   card.append(actions);
+  if (shoppingAction?.ingredient._id === ingredient._id) card.append(shoppingPlan());
   if (pendingDelete && pendingDelete._id === ingredient._id) {
     const confirmation = element('div', 'delete-confirmation');
     confirmation.append(element('p', '', 'Delete “' + ingredient.name + '”? This permanently removes it from your inventory.'));
@@ -171,6 +176,140 @@ function ingredientCard(ingredient) {
   return card;
 }
 
+async function openShopping(ingredient) {
+  if (saving || deleting || editing || pendingDelete || shoppingAction) return;
+  const action = { ingredient, checking: true, matches: [], selected: null, plannedQuantity: 1, unit: ingredient.unit };
+  shoppingAction = action;
+  ++loadVersion;
+  loading = false;
+  list.setAttribute('aria-busy', 'false');
+  message(operationMessage, '');
+  renderInventory();
+  try {
+    const response = await fetch('/api/shopping-items?ingredientId=' + encodeURIComponent(ingredient._id), { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok || !Array.isArray(data.shoppingItems)) throw new Error(data.error || 'Unable to check the shopping list.');
+    action.matches = data.shoppingItems;
+  } catch {
+    action.error = 'Unable to check your shopping list. Cancel and try again when connected.';
+  }
+  action.checking = false;
+  renderInventory();
+  (document.querySelector('#shopping-plan-quantity') || document.querySelector('.card-form button'))?.focus();
+}
+
+function shoppingPlan() {
+  const action = shoppingAction;
+  const panel = element('div', 'card-form');
+  const cancel = element('button', 'button secondary cancel-edit', 'Cancel');
+  cancel.type = 'button';
+  cancel.disabled = action.checking;
+  cancel.addEventListener('click', () => {
+    if (action.saving || action.checking) return;
+    shoppingAction = null;
+    renderInventory();
+    refreshButton.focus();
+  });
+  if (action.checking || action.error) {
+    panel.append(element('p', action.error ? 'form-message error' : 'form-message', action.error || 'Checking your shopping list…'), cancel);
+    return panel;
+  }
+  if (action.matches.length && !action.selected) {
+    panel.append(element('p', 'form-hint', 'Already on your shopping list. Edit an existing item instead of adding a duplicate.'));
+    for (const item of action.matches) {
+      panel.append(element('p', 'form-hint', item.name + ' · Planned: ' + item.plannedQuantity + ' ' + item.unit));
+      const edit = element('button', 'button secondary', 'Edit shopping item');
+      edit.type = 'button';
+      edit.addEventListener('click', () => {
+        action.selected = item;
+        action.plannedQuantity = item.plannedQuantity;
+        action.unit = item.unit;
+        renderInventory();
+        document.querySelector('#shopping-plan-quantity')?.focus();
+      });
+      panel.append(edit);
+    }
+    panel.append(cancel);
+    return panel;
+  }
+
+  panel.append(element('h4', '', action.selected ? 'Edit shopping item' : 'Plan your purchase'));
+  panel.append(element('p', 'form-hint', 'Confirm how much you plan to buy. Your inventory stays the same until you record a purchase.'));
+  const plan = element('form');
+  const row = element('div', 'field-row');
+  const quantity = element('input');
+  quantity.id = 'shopping-plan-quantity';
+  quantity.type = 'number';
+  quantity.min = '0';
+  quantity.step = 'any';
+  quantity.required = true;
+  quantity.value = action.plannedQuantity;
+  const unit = element('input');
+  unit.id = 'shopping-plan-unit';
+  unit.type = 'text';
+  unit.maxLength = 40;
+  unit.required = true;
+  unit.value = action.unit;
+  for (const [input, title] of [[quantity, 'Planned quantity'], [unit, 'Unit']]) {
+    const field = element('div', 'field');
+    const label = element('label', '', title);
+    label.htmlFor = input.id;
+    input.addEventListener('input', () => input.setCustomValidity(''));
+    field.append(label, input);
+    row.append(field);
+  }
+  const submit = element('button', 'button primary', action.selected ? 'Save shopping changes' : 'Add to shopping list');
+  submit.type = 'submit';
+  const feedback = element('p', 'form-message');
+  feedback.setAttribute('role', 'status');
+  feedback.setAttribute('aria-live', 'polite');
+  plan.append(row, submit, cancel, feedback);
+  plan.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (action.saving) return;
+    quantity.setCustomValidity(Number.isFinite(Number(quantity.value)) && Number(quantity.value) > 0 ? '' : 'Enter a planned quantity greater than zero.');
+    unit.setCustomValidity(unit.value.trim() ? '' : 'Enter a unit.');
+    if (!plan.reportValidity()) return;
+    action.plannedQuantity = Number(quantity.value);
+    action.unit = unit.value.trim();
+    action.saving = true;
+    quantity.disabled = unit.disabled = submit.disabled = cancel.disabled = true;
+    plan.setAttribute('aria-busy', 'true');
+    message(feedback, 'Saving your shopping item…');
+    const selected = action.selected;
+    const body = { name: selected?.name || action.ingredient.name, plannedQuantity: action.plannedQuantity, unit: action.unit };
+    if (!selected?.ingredientId) body.ingredientId = action.ingredient._id;
+    try {
+      const response = await fetch('/api/shopping-items' + (selected ? '/' + encodeURIComponent(selected._id) : ''), {
+        method: selected ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        if (data.existingItem) {
+          action.matches = [data.existingItem];
+          action.selected = null;
+          renderInventory();
+          return;
+        }
+        throw new Error(data.error || 'Unable to save the shopping item.');
+      }
+      shoppingAction = null;
+      renderInventory();
+      message(operationMessage, (selected ? 'Updated “' : 'Added “') + data.name + '” on your shopping list.', 'success');
+      refreshButton.focus();
+    } catch (error) {
+      message(feedback, error instanceof TypeError || error instanceof SyntaxError
+        ? 'Unable to confirm the save. Cancel and open Add to shopping list again to check the saved item.' : error.message, 'error');
+    } finally {
+      action.saving = false;
+      quantity.disabled = unit.disabled = submit.disabled = cancel.disabled = false;
+      plan.setAttribute('aria-busy', 'false');
+    }
+  });
+  panel.append(plan);
+  return panel;
+}
+
 async function loadIngredients() {
   const version = ++loadVersion;
   loading = true;
@@ -207,7 +346,7 @@ quantityInput.addEventListener('input', validateQuantity);
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (saving || deleting || pendingDelete) return;
+  if (saving || deleting || pendingDelete || shoppingAction) return;
   validateQuantity();
   if (!form.reportValidity()) return;
   const ingredient = {
@@ -258,6 +397,6 @@ cancelEditButton.addEventListener('click', () => {
   form.elements.name.focus();
 });
 refreshButton.addEventListener('click', () => {
-  if (!saving && !deleting && !editing && !pendingDelete) return loadIngredients();
+  if (!saving && !deleting && !editing && !pendingDelete && !shoppingAction) return loadIngredients();
 });
 loadIngredients();

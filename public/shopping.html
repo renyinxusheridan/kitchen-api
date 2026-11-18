@@ -30,7 +30,7 @@
     </div>
 
     <div class="workspace">
-      <section class="form-panel" aria-labelledby="shopping-form-heading">
+      <section class="form-panel" id="shopping-editor" aria-labelledby="shopping-form-heading">
         <div class="section-intro">
           <span class="step-mark" aria-hidden="true">+</span>
           <div><h2 id="shopping-form-heading">Add a shopping item</h2><p>One less thing to remember at the store.</p></div>
@@ -58,6 +58,52 @@
           <p id="shopping-form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
         </form>
         <p class="persistence-note"><span aria-hidden="true">✓</span> Your shopping list stays here when you reload.</p>
+      </section>
+
+      <section class="form-panel" id="purchase-panel" aria-labelledby="purchase-heading" hidden>
+        <div class="section-intro">
+          <span class="step-mark" aria-hidden="true">+</span>
+          <div><h2 id="purchase-heading">Record purchase</h2><p id="purchase-name"></p></div>
+        </div>
+        <p id="purchase-context" class="form-hint"></p>
+        <form id="purchase-form">
+          <div class="field-row">
+            <div class="field">
+              <label for="purchase-quantity">Purchased quantity</label>
+              <input id="purchase-quantity" name="quantity" type="number" min="0" step="any" required aria-describedby="purchase-quantity-hint">
+            </div>
+            <div class="field">
+              <label for="purchase-unit">Purchased unit</label>
+              <input id="purchase-unit" name="unit" type="text" maxlength="40" required>
+            </div>
+          </div>
+          <p id="purchase-quantity-hint" class="input-hint">Enter what you actually bought. It can differ from your plan.</p>
+          <div class="field">
+            <label for="purchase-destination">Save to My Kitchen</label>
+            <select id="purchase-destination" name="destination" required aria-describedby="purchase-destination-hint">
+              <option value="" disabled selected>Choose where to save</option>
+              <option value="new">Create a new inventory record</option>
+              <option value="existing" id="purchase-existing-option">Add to linked existing record</option>
+            </select>
+          </div>
+          <p id="purchase-destination-hint" class="input-hint">Quantities combine only when units match exactly. Units are never converted.</p>
+          <div class="field">
+            <label for="purchase-storage">Storage location</label>
+            <select id="purchase-storage" name="storage" required>
+              <option value="fridge">Fridge</option>
+              <option value="freezer">Freezer</option>
+              <option value="pantry">Pantry</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="purchase-expiry">Expiry date <span class="optional">(optional)</span></label>
+            <input id="purchase-expiry" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
+          </div>
+          <button class="button primary" id="purchase-save" type="submit">Save purchase to My Kitchen</button>
+          <button class="button secondary cancel-edit" id="purchase-cancel" type="button">Cancel</button>
+          <p id="purchase-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        </form>
+        <p class="persistence-note">The shopping item is completed after your inventory is saved.</p>
       </section>
 
       <section class="inventory-panel" aria-labelledby="shopping-heading">

@@ -10,6 +10,14 @@
   const cards = document.querySelector('#shopping-cards');
   const count = document.querySelector('#shopping-count');
   const operationMessage = document.querySelector('#shopping-operation-message');
+  const editor = document.querySelector('#shopping-editor');
+  const purchasePanel = document.querySelector('#purchase-panel');
+  const purchaseForm = document.querySelector('#purchase-form');
+  const purchaseSave = document.querySelector('#purchase-save');
+  const purchaseCancel = document.querySelector('#purchase-cancel');
+  const purchaseMessage = document.querySelector('#purchase-message');
+  const purchaseHint = document.querySelector('#purchase-destination-hint');
+  const purchaseFields = ['quantity', 'unit', 'destination', 'storage', 'expiryDate'];
   const fields = ['name', 'plannedQuantity', 'unit'];
   const endpoint = '/api/shopping-items';
   let items = [];
@@ -21,6 +29,8 @@
   let loadVersion = 0;
   let cardButtons = [];
   let confirmationButton;
+  let purchase = null;
+  let purchasing = false;
 
   function message(node, text, state = '') {
     node.className = 'form-message' + (state ? ' ' + state : '');
@@ -28,13 +38,15 @@
   }
 
   function syncControls() {
-    const busy = saving || deleting;
-    const active = busy || editing !== null || pendingDelete !== null;
+    const busy = saving || deleting || purchasing;
+    const active = busy || editing !== null || pendingDelete !== null || purchase !== null;
     refreshButton.disabled = loading || active;
-    saveButton.disabled = busy || pendingDelete !== null;
+    saveButton.disabled = busy || pendingDelete !== null || purchase !== null;
     cancelEditButton.disabled = busy;
-    for (const key of fields) form.elements[key].disabled = busy || pendingDelete !== null;
+    for (const key of fields) form.elements[key].disabled = busy || pendingDelete !== null || purchase !== null;
     for (const button of cardButtons) button.disabled = active;
+    for (const key of purchaseFields) purchaseForm.elements[key].disabled = busy;
+    purchaseSave.disabled = purchaseCancel.disabled = busy;
   }
 
   function discardOlderLoad() {
@@ -54,7 +66,7 @@
   }
 
   function startEditing(item) {
-    if (saving || deleting || editing || pendingDelete) return;
+    if (saving || deleting || editing || pendingDelete || purchase) return;
     editing = item;
     discardOlderLoad();
     formHeading.textContent = 'Edit a shopping item';
@@ -95,15 +107,26 @@
   }
 
   function itemCard(item) {
-    const card = element('li', 'ingredient-card');
+    const completed = item.status === 'completed';
+    const card = element('li', 'ingredient-card' + (completed ? ' completed-card' : ''));
     const header = element('div', 'card-header');
     header.append(element('h3', '', item.name));
+    if (completed) header.append(element('span', 'storage completed-badge', 'Completed'));
     const amount = element('p', 'amount', String(item.plannedQuantity));
     amount.append(element('span', '', item.unit));
     card.append(header, amount, element('p', 'expiry', 'Planned quantity'));
+    if (item.ingredientId) {
+      const stock = item.currentInventory;
+      card.append(element('p', 'stock-note', stock
+        ? 'In My Kitchen: ' + stock.quantity + ' ' + stock.unit + ' · ' + stock.storage
+        : 'Linked inventory record is no longer available. You can create a new record when recording a purchase.'));
+    }
+    if (completed && item.purchase) {
+      card.append(element('p', 'purchase-note', 'Purchased: ' + item.purchase.quantity + ' ' + item.purchase.unit + ' · ' + item.purchase.storage));
+    }
     const editButton = button('Edit', '', () => startEditing(item));
     const deleteButton = button('Delete', 'danger', () => {
-      if (saving || deleting || editing || pendingDelete) return;
+      if (saving || deleting || editing || pendingDelete || purchase) return;
       pendingDelete = item;
       discardOlderLoad();
       message(operationMessage, '');
@@ -115,6 +138,12 @@
     cardButtons.push(editButton, deleteButton);
     const actions = element('div', 'card-actions');
     actions.append(editButton, deleteButton);
+    if (!completed) {
+      const purchaseButton = button('Record purchase', '', () => startPurchase(item));
+      purchaseButton.setAttribute('aria-label', 'Record purchase of ' + item.name);
+      cardButtons.push(purchaseButton);
+      actions.append(purchaseButton);
+    }
     card.append(actions);
 
     if (pendingDelete && pendingDelete._id === item._id) {
@@ -165,6 +194,106 @@
     return card;
   }
 
+  function startPurchase(item) {
+    if (saving || deleting || editing || pendingDelete || purchase || item.status === 'completed') return;
+    purchase = item;
+    discardOlderLoad();
+    purchaseForm.reset();
+    purchaseForm.elements.quantity.value = item.plannedQuantity;
+    purchaseForm.elements.unit.value = item.unit;
+    purchaseForm.elements.storage.value = item.currentInventory?.storage || 'fridge';
+    for (const key of purchaseFields) purchaseForm.elements[key].setCustomValidity('');
+    document.querySelector('#purchase-name').textContent = item.name;
+    const stock = item.currentInventory;
+    document.querySelector('#purchase-context').textContent = 'Planned: ' + item.plannedQuantity + ' ' + item.unit + '. '
+      + (stock ? 'In My Kitchen: ' + stock.quantity + ' ' + stock.unit + '.' : 'No available linked inventory record. Create a new record for this purchase.');
+    const existingOption = document.querySelector('#purchase-existing-option');
+    existingOption.disabled = !stock;
+    existingOption.textContent = stock ? 'Add to linked record (' + stock.quantity + ' ' + stock.unit + ')' : 'No linked record available';
+    updatePurchaseHint();
+    message(purchaseMessage, '');
+    message(operationMessage, '');
+    editor.hidden = true;
+    purchasePanel.hidden = false;
+    renderItems();
+    purchaseForm.elements.quantity.focus();
+  }
+
+  function updatePurchaseHint() {
+    const existing = purchaseForm.elements.destination.value === 'existing';
+    purchaseHint.textContent = existing
+      ? 'The purchased unit must exactly match “' + (purchase?.currentInventory?.unit || '') + '”. Storage and expiry below apply to the entire combined record.'
+      : purchaseForm.elements.destination.value === 'new'
+        ? 'A new record keeps this purchase separate. Units are never converted.'
+        : 'Choose a new record or add to the linked record. Quantities combine only when units match exactly.';
+  }
+
+  function finishPurchase() {
+    purchase = null;
+    purchasePanel.hidden = true;
+    editor.hidden = false;
+    purchaseForm.reset();
+    syncControls();
+  }
+
+  purchaseForm.elements.destination.addEventListener('change', () => {
+    const existing = purchaseForm.elements.destination.value === 'existing';
+    purchaseForm.elements.storage.value = purchase?.currentInventory?.storage || 'fridge';
+    purchaseForm.elements.expiryDate.value = existing ? (purchase?.currentInventory?.expiryDate || '').slice(0, 10) : '';
+    purchaseForm.elements.unit.setCustomValidity('');
+    updatePurchaseHint();
+  });
+  for (const key of purchaseFields) purchaseForm.elements[key].addEventListener('input', () => purchaseForm.elements[key].setCustomValidity(''));
+  purchaseForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!purchase || purchasing || saving || deleting) return;
+    const values = purchaseForm.elements;
+    const quantity = Number(values.quantity.value);
+    const unit = values.unit.value.trim();
+    values.quantity.setCustomValidity(Number.isFinite(quantity) && quantity > 0 ? '' : 'Enter a purchased quantity greater than zero.');
+    values.unit.setCustomValidity(!unit ? 'Enter a unit.' : values.destination.value === 'existing' && unit !== purchase.currentInventory?.unit
+      ? 'Units must match exactly. Use the existing unit or choose a new record.' : '');
+    if (!purchaseForm.reportValidity()) return;
+    const selected = purchase;
+    purchasing = true;
+    syncControls();
+    purchaseForm.setAttribute('aria-busy', 'true');
+    purchaseSave.textContent = 'Saving purchase…';
+    message(purchaseMessage, 'Saving to My Kitchen…');
+    try {
+      const response = await fetch(endpoint + '/' + encodeURIComponent(selected._id) + '/purchase', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity, unit, destination: values.destination.value, storage: values.storage.value, expiryDate: values.expiryDate.value || null })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to record the purchase.');
+      items = items.map(item => item._id === selected._id ? data.shoppingItem
+        : data.ingredient && item.ingredientId === data.ingredient._id ? { ...item, currentInventory: data.ingredient } : item);
+      finishPurchase();
+      renderItems();
+      message(operationMessage, data.alreadyCompleted
+        ? 'This purchase was already recorded. No quantity was added again.'
+        : 'Purchased “' + selected.name + '”. My Kitchen is updated and the shopping item is completed.', 'success');
+      await loadItems();
+    } catch (error) {
+      message(purchaseMessage, error instanceof TypeError || error instanceof SyntaxError
+        ? 'Unable to confirm the purchase. Retry to check and finish it safely; the same shopping item cannot record a purchase twice.' : error.message, 'error');
+    } finally {
+      purchasing = false;
+      syncControls();
+      purchaseSave.textContent = 'Save purchase to My Kitchen';
+      purchaseForm.setAttribute('aria-busy', 'false');
+      if (!purchase) refreshButton.focus();
+    }
+  });
+  purchaseCancel.addEventListener('click', () => {
+    if (purchasing) return;
+    finishPurchase();
+    renderItems();
+    message(operationMessage, 'Purchase form closed. Refresh the list to see the latest saved state.');
+    refreshButton.focus();
+  });
+
   async function loadItems() {
     const version = ++loadVersion;
     loading = true;
@@ -211,7 +340,7 @@
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (saving || deleting || pendingDelete) return;
+    if (saving || deleting || pendingDelete || purchase || purchasing) return;
     fields.forEach(validateField);
     if (!form.reportValidity()) return;
     const item = {
@@ -258,7 +387,7 @@
     form.elements.name.focus();
   });
   refreshButton.addEventListener('click', () => {
-    if (!saving && !deleting && !editing && !pendingDelete) return loadItems();
+    if (!saving && !deleting && !editing && !pendingDelete && !purchase && !purchasing) return loadItems();
   });
   loadItems();
 })();
