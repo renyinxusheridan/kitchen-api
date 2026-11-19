@@ -10,6 +10,8 @@ const quantityInput = form.elements.quantity;
 const cancelEditButton = document.querySelector('#cancel-edit-button');
 const formHeading = document.querySelector('#add-heading');
 const operationMessage = document.querySelector('#operation-message');
+const kitchenUI = globalThis.kitchenUI;
+let adding = false;
 let saving = false;
 let deleting = false;
 let loading = false;
@@ -23,7 +25,7 @@ let shoppingAction = null;
 
 function syncControls() {
   const busy = saving || deleting || shoppingAction !== null;
-  const active = busy || editing !== null || pendingDelete !== null;
+  const active = busy || editing !== null || pendingDelete !== null || adding;
   refreshButton.disabled = loading || active;
   saveButton.disabled = busy || pendingDelete !== null;
   cancelEditButton.disabled = busy;
@@ -37,6 +39,7 @@ function message(node, text, state = '') {
 }
 
 function finishEditing() {
+  adding = false;
   editing = null;
   form.reset();
   quantityInput.setCustomValidity('');
@@ -47,7 +50,7 @@ function finishEditing() {
 }
 
 function startEditing(ingredient) {
-  if (saving || deleting || editing || pendingDelete || shoppingAction) return;
+  if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
   editing = ingredient;
   // Discard an older GET so it cannot replace cards while the form is open.
   ++loadVersion;
@@ -59,9 +62,10 @@ function startEditing(ingredient) {
   quantityInput.setCustomValidity('');
   saveButton.textContent = 'Save changes';
   cancelEditButton.hidden = false;
-  message(formMessage, 'Editing “' + ingredient.name + '”.');
+  message(formMessage, kitchenUI ? '' : 'Editing “' + ingredient.name + '”.');
   message(operationMessage, '');
   renderInventory();
+  kitchenUI?.open('ingredient-dialog', { onCancel: cancelIngredient, busy: () => saving, fallback: '#add-ingredient' });
   form.elements.name.focus();
 }
 
@@ -69,7 +73,7 @@ function renderInventory() {
   cardButtons = [];
   cards.replaceChildren(...inventory.map(ingredientCard));
   count.textContent = inventory.length;
-  listMessage.textContent = inventory.length ? '' : 'Your kitchen is ready for its first ingredient. Add one using the form.';
+  listMessage.textContent = inventory.length ? '' : 'Add your first ingredient.';
   listMessage.className = 'list-message';
   syncControls();
 }
@@ -92,7 +96,7 @@ function ingredientCard(ingredient) {
   const amount = element('p', 'amount', String(ingredient.quantity));
   amount.append(element('span', '', ingredient.unit));
   const expiry = element('p', 'expiry');
-  expiry.append(element('span', '', 'Expiry date'));
+  expiry.append(element('span', '', kitchenUI ? 'Use by' : 'Expiry date'));
   if (ingredient.expiryDate && !Number.isNaN(Date.parse(ingredient.expiryDate))) {
     const time = element('time', '', new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(ingredient.expiryDate)));
     time.dateTime = ingredient.expiryDate.slice(0, 10);
@@ -100,11 +104,12 @@ function ingredientCard(ingredient) {
   } else {
     expiry.append(element('span', '', 'Not set'));
   }
-  card.append(header, amount, expiry);
+  card.append(header, amount);
+  if (ingredient.expiryDate || !kitchenUI) card.append(expiry);
   const actions = element('div', 'card-actions');
   const editButton = element('button', 'button secondary', 'Edit');
   const deleteButton = element('button', 'button secondary danger', 'Delete');
-  const shoppingButton = element('button', 'button secondary', 'Add to shopping list');
+  const shoppingButton = element('button', 'button secondary', kitchenUI ? 'Add to list' : 'Add to shopping list');
   for (const button of [editButton, deleteButton, shoppingButton]) {
     button.type = 'button';
     cardButtons.push(button);
@@ -115,18 +120,29 @@ function ingredientCard(ingredient) {
   shoppingButton.addEventListener('click', () => openShopping(ingredient));
   editButton.addEventListener('click', () => startEditing(ingredient));
   deleteButton.addEventListener('click', () => {
-    if (saving || deleting || editing || pendingDelete || shoppingAction) return;
+    if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
     pendingDelete = ingredient;
     ++loadVersion;
     loading = false;
     list.setAttribute('aria-busy', 'false');
     message(operationMessage, '');
     renderInventory();
+    kitchenUI?.open('ingredient-delete-dialog', { onCancel: cancelIngredientDelete, busy: () => deleting, fallback: '#add-ingredient' });
     confirmationButton.focus();
   });
-  actions.append(editButton, deleteButton, shoppingButton);
-  card.append(actions);
-  if (shoppingAction?.ingredient._id === ingredient._id) card.append(shoppingPlan());
+  if (kitchenUI) {
+    const menu = kitchenUI.cardActions(ingredient.name, shoppingButton, editButton, deleteButton);
+    cardButtons.push(menu.toggle);
+    card.append(menu.root);
+  } else {
+    actions.append(editButton, deleteButton, shoppingButton);
+    card.append(actions);
+  }
+  if (shoppingAction?.ingredient._id === ingredient._id) {
+    const plan = shoppingPlan();
+    if (kitchenUI) kitchenUI.content('plan-content', plan);
+    else card.append(plan);
+  }
   if (pendingDelete && pendingDelete._id === ingredient._id) {
     const confirmation = element('div', 'delete-confirmation');
     confirmation.append(element('p', '', 'Delete “' + ingredient.name + '”? This permanently removes it from your inventory.'));
@@ -136,6 +152,7 @@ function ingredientCard(ingredient) {
     confirm.addEventListener('click', async () => {
       if (saving || deleting) return;
       deleting = true;
+      kitchenUI?.busy(true);
       syncControls();
       confirm.disabled = cancel.disabled = true;
       confirm.textContent = 'Deleting…';
@@ -150,34 +167,33 @@ function ingredientCard(ingredient) {
         pendingDelete = null;
         message(operationMessage, 'Deleted “' + ingredient.name + '”.', 'success');
         renderInventory();
+        kitchenUI?.dismiss('ingredient-delete-dialog');
+        kitchenUI?.toast('Deleted “' + ingredient.name + '”.');
+        if (kitchenUI) await kitchenUI.refreshAll();
       } catch (error) {
         message(operationMessage, error instanceof TypeError || error instanceof SyntaxError ? 'Unable to confirm deletion. Cancel and refresh the list before trying again.' : error.message, 'error');
       } finally {
         deleting = false;
+        kitchenUI?.busy(false);
         confirm.disabled = cancel.disabled = false;
         confirm.textContent = 'Confirm delete';
         syncControls();
         if (!pendingDelete) refreshButton.focus();
       }
     });
-    cancel.addEventListener('click', () => {
-      if (deleting) return;
-      pendingDelete = null;
-      message(operationMessage, 'Deletion cancelled.');
-      renderInventory();
-      refreshButton.focus();
-    });
+    cancel.addEventListener('click', cancelIngredientDelete);
     const buttons = element('div', 'card-actions');
     buttons.append(confirm, cancel);
     confirmation.append(buttons);
-    card.append(confirmation);
+    if (kitchenUI) kitchenUI.content('ingredient-delete-content', confirmation);
+    else card.append(confirmation);
     confirmationButton = confirm;
   }
   return card;
 }
 
 async function openShopping(ingredient) {
-  if (saving || deleting || editing || pendingDelete || shoppingAction) return;
+  if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
   const action = { ingredient, checking: true, matches: [], selected: null, plannedQuantity: 1, unit: ingredient.unit };
   shoppingAction = action;
   ++loadVersion;
@@ -185,6 +201,7 @@ async function openShopping(ingredient) {
   list.setAttribute('aria-busy', 'false');
   message(operationMessage, '');
   renderInventory();
+  kitchenUI?.open('plan-dialog', { onCancel: cancelShoppingPlan, busy: () => action.saving || action.checking, fallback: '#add-ingredient' });
   try {
     const response = await fetch('/api/shopping-items?ingredientId=' + encodeURIComponent(ingredient._id), { cache: 'no-store' });
     const data = await response.json();
@@ -201,15 +218,11 @@ async function openShopping(ingredient) {
 function shoppingPlan() {
   const action = shoppingAction;
   const panel = element('div', 'card-form');
+  panel.append(element('p', 'item-name', action.ingredient.name));
   const cancel = element('button', 'button secondary cancel-edit', 'Cancel');
   cancel.type = 'button';
   cancel.disabled = action.checking;
-  cancel.addEventListener('click', () => {
-    if (action.saving || action.checking) return;
-    shoppingAction = null;
-    renderInventory();
-    refreshButton.focus();
-  });
+  cancel.addEventListener('click', cancelShoppingPlan);
   if (action.checking || action.error) {
     panel.append(element('p', action.error ? 'form-message error' : 'form-message', action.error || 'Checking your shopping list…'), cancel);
     return panel;
@@ -233,8 +246,7 @@ function shoppingPlan() {
     return panel;
   }
 
-  panel.append(element('h4', '', action.selected ? 'Edit shopping item' : 'Plan your purchase'));
-  panel.append(element('p', 'form-hint', 'Confirm how much you plan to buy. Your inventory stays the same until you record a purchase.'));
+  if (action.selected) panel.append(element('h4', '', 'Edit shopping item'));
   const plan = element('form');
   const row = element('div', 'field-row');
   const quantity = element('input');
@@ -273,6 +285,7 @@ function shoppingPlan() {
     action.plannedQuantity = Number(quantity.value);
     action.unit = unit.value.trim();
     action.saving = true;
+    kitchenUI?.busy(true);
     quantity.disabled = unit.disabled = submit.disabled = cancel.disabled = true;
     plan.setAttribute('aria-busy', 'true');
     message(feedback, 'Saving your shopping item…');
@@ -296,12 +309,16 @@ function shoppingPlan() {
       shoppingAction = null;
       renderInventory();
       message(operationMessage, (selected ? 'Updated “' : 'Added “') + data.name + '” on your shopping list.', 'success');
-      refreshButton.focus();
+      kitchenUI?.dismiss('plan-dialog');
+      kitchenUI?.toast((selected ? 'Updated “' : 'Added “') + data.name + '” on your list.');
+      if (kitchenUI) await kitchenUI.refreshAll();
+      else refreshButton.focus();
     } catch (error) {
       message(feedback, error instanceof TypeError || error instanceof SyntaxError
         ? 'Unable to confirm the save. Cancel and open Add to shopping list again to check the saved item.' : error.message, 'error');
     } finally {
       action.saving = false;
+      kitchenUI?.busy(false);
       quantity.disabled = unit.disabled = submit.disabled = cancel.disabled = false;
       plan.setAttribute('aria-busy', 'false');
     }
@@ -357,6 +374,7 @@ form.addEventListener('submit', async (event) => {
     expiryDate: form.elements.expiryDate.value || null
   };
   saving = true;
+  kitchenUI?.busy(true);
   const edited = editing;
   syncControls();
   form.setAttribute('aria-busy', 'true');
@@ -378,25 +396,56 @@ form.addEventListener('submit', async (event) => {
       inventory = inventory.map(record => record._id === edited._id ? data : record);
       renderInventory();
     }
-    await loadIngredients();
+    kitchenUI?.dismiss('ingredient-dialog');
+    kitchenUI?.toast('Saved “' + data.name + '”.');
+    await (kitchenUI ? kitchenUI.refreshAll() : loadIngredients());
   } catch (error) {
     formMessage.className = 'form-message error';
     formMessage.textContent = error instanceof TypeError || error instanceof SyntaxError ? 'Unable to confirm the save. Refresh the list before trying again.' : error.message;
   } finally {
     saving = false;
+    kitchenUI?.busy(false);
     syncControls();
     saveButton.textContent = editing ? 'Save changes' : '+ Add ingredient';
     form.setAttribute('aria-busy', 'false');
   }
 });
 
-cancelEditButton.addEventListener('click', () => {
+function cancelIngredient() {
   if (saving) return;
   finishEditing();
   message(formMessage, 'Edit cancelled.');
-  form.elements.name.focus();
-});
+  if (kitchenUI) kitchenUI.dismiss('ingredient-dialog');
+  else form.elements.name.focus();
+}
+function cancelIngredientDelete() {
+  if (deleting) return;
+  pendingDelete = null;
+  message(operationMessage, 'Deletion cancelled.');
+  renderInventory();
+  kitchenUI?.dismiss('ingredient-delete-dialog');
+  if (!kitchenUI) refreshButton.focus();
+}
+function cancelShoppingPlan() {
+  if (shoppingAction?.saving || shoppingAction?.checking) return;
+  shoppingAction = null;
+  renderInventory();
+  kitchenUI?.dismiss('plan-dialog');
+  if (!kitchenUI) refreshButton.focus();
+}
+cancelEditButton.addEventListener('click', cancelIngredient);
 refreshButton.addEventListener('click', () => {
-  if (!saving && !deleting && !editing && !pendingDelete && !shoppingAction) return loadIngredients();
+  if (!saving && !deleting && !editing && !pendingDelete && !shoppingAction && !adding) return kitchenUI ? kitchenUI.refreshAll() : loadIngredients();
+});
+kitchenUI?.register('inventory', loadIngredients);
+document.querySelector('#add-ingredient')?.addEventListener('click', () => {
+  if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
+  finishEditing();
+  adding = true;
+  cancelEditButton.hidden = false;
+  message(formMessage, '');
+  kitchenUI.open('ingredient-dialog', { onCancel: cancelIngredient, busy: () => saving, fallback: '#add-ingredient' });
+  syncControls();
+  form.elements.name.focus();
 });
 loadIngredients();

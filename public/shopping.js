@@ -20,6 +20,8 @@
   const purchaseFields = ['quantity', 'unit', 'destination', 'storage', 'expiryDate'];
   const fields = ['name', 'plannedQuantity', 'unit'];
   const endpoint = '/api/shopping-items';
+  const ui = globalThis.kitchenUI;
+  let adding = false;
   let items = [];
   let editing = null;
   let pendingDelete = null;
@@ -39,7 +41,7 @@
 
   function syncControls() {
     const busy = saving || deleting || purchasing;
-    const active = busy || editing !== null || pendingDelete !== null || purchase !== null;
+    const active = busy || editing !== null || pendingDelete !== null || purchase !== null || adding;
     refreshButton.disabled = loading || active;
     saveButton.disabled = busy || pendingDelete !== null || purchase !== null;
     cancelEditButton.disabled = busy;
@@ -56,6 +58,7 @@
   }
 
   function finishEditing() {
+    adding = false;
     editing = null;
     form.reset();
     for (const key of fields) form.elements[key].setCustomValidity('');
@@ -66,7 +69,7 @@
   }
 
   function startEditing(item) {
-    if (saving || deleting || editing || pendingDelete || purchase) return;
+    if (saving || deleting || editing || pendingDelete || purchase || adding) return;
     editing = item;
     discardOlderLoad();
     formHeading.textContent = 'Edit a shopping item';
@@ -76,9 +79,10 @@
     }
     saveButton.textContent = 'Save changes';
     cancelEditButton.hidden = false;
-    message(formMessage, 'Editing “' + item.name + '”.');
+    message(formMessage, '');
     message(operationMessage, '');
     renderItems();
+    ui.open('shopping-dialog', { onCancel: cancelShoppingEdit, busy: () => saving, fallback: '#add-shopping' });
     form.elements.name.focus();
   }
 
@@ -102,7 +106,7 @@
     cards.replaceChildren(...items.map(itemCard));
     count.textContent = items.length;
     listMessage.className = 'list-message';
-    listMessage.textContent = items.length ? '' : 'Your shopping list is empty. Add your first item using the form.';
+    listMessage.textContent = items.length ? '' : 'Your list is empty. Add an item.';
     syncControls();
   }
 
@@ -114,37 +118,39 @@
     if (completed) header.append(element('span', 'storage completed-badge', 'Completed'));
     const amount = element('p', 'amount', String(item.plannedQuantity));
     amount.append(element('span', '', item.unit));
-    card.append(header, amount, element('p', 'expiry', 'Planned quantity'));
+    amount.setAttribute('aria-label', 'Planned: ' + item.plannedQuantity + ' ' + item.unit);
+    card.append(header, amount);
     if (item.ingredientId) {
       const stock = item.currentInventory;
       card.append(element('p', 'stock-note', stock
-        ? 'In My Kitchen: ' + stock.quantity + ' ' + stock.unit + ' · ' + stock.storage
-        : 'Linked inventory record is no longer available. You can create a new record when recording a purchase.'));
+        ? 'In kitchen: ' + stock.quantity + ' ' + stock.unit + ' · ' + stock.storage
+        : 'Linked stock removed. Record a purchase as a new item.'));
     }
     if (completed && item.purchase) {
       card.append(element('p', 'purchase-note', 'Purchased: ' + item.purchase.quantity + ' ' + item.purchase.unit + ' · ' + item.purchase.storage));
     }
     const editButton = button('Edit', '', () => startEditing(item));
     const deleteButton = button('Delete', 'danger', () => {
-      if (saving || deleting || editing || pendingDelete || purchase) return;
+      if (saving || deleting || editing || pendingDelete || purchase || adding) return;
       pendingDelete = item;
       discardOlderLoad();
       message(operationMessage, '');
       renderItems();
+      ui.open('shopping-delete-dialog', { onCancel: cancelShoppingDelete, busy: () => deleting, fallback: '#add-shopping' });
       confirmationButton.focus();
     });
     editButton.setAttribute('aria-label', 'Edit ' + item.name);
     deleteButton.setAttribute('aria-label', 'Delete ' + item.name);
     cardButtons.push(editButton, deleteButton);
-    const actions = element('div', 'card-actions');
-    actions.append(editButton, deleteButton);
+    let purchaseButton = null;
     if (!completed) {
-      const purchaseButton = button('Record purchase', '', () => startPurchase(item));
+      purchaseButton = button('Record purchase', '', () => startPurchase(item));
       purchaseButton.setAttribute('aria-label', 'Record purchase of ' + item.name);
       cardButtons.push(purchaseButton);
-      actions.append(purchaseButton);
     }
-    card.append(actions);
+    const menu = ui.cardActions(item.name, purchaseButton, editButton, deleteButton);
+    cardButtons.push(menu.toggle);
+    card.append(menu.root);
 
     if (pendingDelete && pendingDelete._id === item._id) {
       const confirmation = element('div', 'delete-confirmation');
@@ -152,6 +158,7 @@
       const confirm = button('Confirm delete', 'danger', async () => {
         if (saving || deleting) return;
         deleting = true;
+        ui.busy(true);
         syncControls();
         confirm.disabled = cancel.disabled = true;
         confirm.textContent = 'Deleting…';
@@ -167,35 +174,33 @@
           message(formMessage, '');
           message(operationMessage, 'Deleted “' + item.name + '”.', 'success');
           renderItems();
+          ui.dismiss('shopping-delete-dialog');
+          ui.toast('Deleted “' + item.name + '”.');
+          await ui.refreshAll();
         } catch (error) {
           message(operationMessage, error instanceof TypeError || error instanceof SyntaxError
             ? 'Unable to confirm deletion. Cancel and refresh the list before trying again.' : error.message, 'error');
         } finally {
           deleting = false;
+          ui.busy(false);
           confirm.disabled = cancel.disabled = false;
           confirm.textContent = 'Confirm delete';
           syncControls();
           if (!pendingDelete) refreshButton.focus();
         }
       });
-      const cancel = button('Cancel', '', () => {
-        if (deleting) return;
-        pendingDelete = null;
-        message(operationMessage, 'Deletion cancelled.');
-        renderItems();
-        refreshButton.focus();
-      });
+      const cancel = button('Cancel', '', cancelShoppingDelete);
       const actions = element('div', 'card-actions');
       actions.append(confirm, cancel);
       confirmation.append(actions);
-      card.append(confirmation);
+      ui.content('shopping-delete-content', confirmation);
       confirmationButton = confirm;
     }
     return card;
   }
 
   function startPurchase(item) {
-    if (saving || deleting || editing || pendingDelete || purchase || item.status === 'completed') return;
+    if (saving || deleting || editing || pendingDelete || purchase || adding || item.status === 'completed') return;
     purchase = item;
     discardOlderLoad();
     purchaseForm.reset();
@@ -216,6 +221,7 @@
     editor.hidden = true;
     purchasePanel.hidden = false;
     renderItems();
+    ui.open('purchase-dialog', { onCancel: cancelPurchase, busy: () => purchasing, fallback: '#add-shopping' });
     purchaseForm.elements.quantity.focus();
   }
 
@@ -233,6 +239,7 @@
     purchasePanel.hidden = true;
     editor.hidden = false;
     purchaseForm.reset();
+    ui.dismiss('purchase-dialog');
     syncControls();
   }
 
@@ -256,6 +263,7 @@
     if (!purchaseForm.reportValidity()) return;
     const selected = purchase;
     purchasing = true;
+    ui.busy(true);
     syncControls();
     purchaseForm.setAttribute('aria-busy', 'true');
     purchaseSave.textContent = 'Saving purchase…';
@@ -274,25 +282,26 @@
       message(operationMessage, data.alreadyCompleted
         ? 'This purchase was already recorded. No quantity was added again.'
         : 'Purchased “' + selected.name + '”. My Kitchen is updated and the shopping item is completed.', 'success');
-      await loadItems();
+      ui.toast(data.alreadyCompleted ? 'Purchase already recorded. Stock was not added again.' : 'Purchased “' + selected.name + '”. Kitchen updated.');
+      await ui.refreshAll();
     } catch (error) {
       message(purchaseMessage, error instanceof TypeError || error instanceof SyntaxError
         ? 'Unable to confirm the purchase. Retry to check and finish it safely; the same shopping item cannot record a purchase twice.' : error.message, 'error');
     } finally {
       purchasing = false;
+      ui.busy(false);
       syncControls();
       purchaseSave.textContent = 'Save purchase to My Kitchen';
       purchaseForm.setAttribute('aria-busy', 'false');
       if (!purchase) refreshButton.focus();
     }
   });
-  purchaseCancel.addEventListener('click', () => {
+  function cancelPurchase() {
     if (purchasing) return;
     finishPurchase();
     renderItems();
-    message(operationMessage, 'Purchase form closed. Refresh the list to see the latest saved state.');
-    refreshButton.focus();
-  });
+  }
+  purchaseCancel.addEventListener('click', cancelPurchase);
 
   async function loadItems() {
     const version = ++loadVersion;
@@ -349,6 +358,7 @@
       unit: form.elements.unit.value.trim()
     };
     saving = true;
+    ui.busy(true);
     const edited = editing;
     discardOlderLoad();
     syncControls();
@@ -368,26 +378,48 @@
       finishEditing();
       message(formMessage, (edited ? 'Updated “' : 'Added “') + data.name + '”. Your shopping item is saved.', 'success');
       renderItems();
-      await loadItems();
+      ui.dismiss('shopping-dialog');
+      ui.toast('Saved “' + data.name + '”.');
+      await ui.refreshAll();
     } catch (error) {
       message(formMessage, error instanceof TypeError || error instanceof SyntaxError
         ? 'Unable to confirm the save. Cancel any edit and refresh the list before trying again.' : error.message, 'error');
     } finally {
       saving = false;
+      ui.busy(false);
       syncControls();
       saveButton.textContent = editing ? 'Save changes' : '+ Add shopping item';
       form.setAttribute('aria-busy', 'false');
     }
   });
 
-  cancelEditButton.addEventListener('click', () => {
+  function cancelShoppingEdit() {
     if (saving) return;
     finishEditing();
     message(formMessage, 'Edit cancelled.');
-    form.elements.name.focus();
-  });
+    ui.dismiss('shopping-dialog');
+  }
+  function cancelShoppingDelete() {
+    if (deleting) return;
+    pendingDelete = null;
+    message(operationMessage, 'Deletion cancelled.');
+    renderItems();
+    ui.dismiss('shopping-delete-dialog');
+  }
+  cancelEditButton.addEventListener('click', cancelShoppingEdit);
   refreshButton.addEventListener('click', () => {
-    if (!saving && !deleting && !editing && !pendingDelete && !purchase && !purchasing) return loadItems();
+    if (!saving && !deleting && !editing && !pendingDelete && !purchase && !purchasing && !adding) return ui.refreshAll();
+  });
+  ui.register('shopping', loadItems);
+  document.querySelector('#add-shopping').addEventListener('click', () => {
+    if (saving || deleting || editing || pendingDelete || purchase || adding) return;
+    finishEditing();
+    adding = true;
+    cancelEditButton.hidden = false;
+    message(formMessage, '');
+    ui.open('shopping-dialog', { onCancel: cancelShoppingEdit, busy: () => saving, fallback: '#add-shopping' });
+    syncControls();
+    form.elements.name.focus();
   });
   loadItems();
 })();

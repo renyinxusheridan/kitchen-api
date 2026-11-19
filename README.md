@@ -11,26 +11,34 @@ npm start
 
 Open **http://localhost:3000/**. Keep the existing `.env` private. For a new checkout, copy `.env.example` to `.env` and privately configure `MONGODB_URI`, `DB_NAME=kitchen_app`, and `PORT=3000`. Node 24 is selected for deployment; Node 24 and 26 are supported locally.
 
+## Interface
+
+My Kitchen and Shopping List share one screen at `/`. On phones below 700px, two independently scrolling panels are stacked so both section headers and lists stay visible. Tablet and desktop layouts place the panels side by side. The old `/shopping.html` URL forwards to the shared screen.
+
+Each section has Add and Refresh controls. Add, Edit, shopping-plan, purchase, and deletion forms open as bottom sheets on phones and centered dialogs on larger screens. Cards keep their main action visible and group Edit/Delete under **More actions**. All controls have targets of at least 44px, and form inputs use at least 16px text. Lists support keyboard scrolling; dialogs contain keyboard focus and support Escape/cancellation, with focus returned to a list control afterward.
+
+Successful changes refresh both lists together. Failed refreshes retain visible cards and show a retry message in the affected list. Save failures preserve entered form values. The interface uses the existing API and purchase transaction behavior below.
+
 ## Use the inventory
 
-- **Create:** complete the form and choose **Add ingredient**. A successful save resets the form and refreshes the list.
-- **Read:** ingredients load on opening the page. **Refresh list** retries a failed read; existing cards remain visible while refreshing.
-- **Edit:** choose **Edit** on a card. The existing form opens with its name, quantity, unit, storage, and optional expiry prefilled. Choose **Save changes** or **Cancel**. Clearing the expiry removes the saved date.
-- **Delete:** choose **Delete** on a card. An inline confirmation names the ingredient; choose **Confirm delete** or **Cancel**. The card is removed only after the API confirms database success.
-- **Plan a purchase:** choose **Add to shopping list** on a card, confirm the planned quantity and unit, then save. If an unfinished item is already linked or has the same name (case-insensitive), choose **Edit shopping item** instead. Editing an unlinked match explicitly links it to this ingredient; an existing link is retained.
+- **Create:** choose **Add** in My Kitchen, complete the sheet/dialog, then **Add ingredient**. A successful save closes the form and refreshes both lists.
+- **Read:** ingredients load on opening the screen. **Refresh both lists** retries a failed read; existing cards remain visible while refreshing.
+- **Edit:** open **More actions → Edit** on a card. The form opens with its name, quantity, unit, storage, and optional expiry prefilled. Choose **Save changes** or **Cancel**. Clearing the expiry removes the saved date.
+- **Delete:** open **More actions → Delete**. A confirmation dialog names the ingredient; choose **Confirm delete** or **Cancel**. The card is removed only after the API confirms database success.
+- **Plan a purchase:** choose **Add to list** on a card, confirm the planned quantity and unit, then save. If an unfinished item is already linked or has the same name (case-insensitive), choose **Edit shopping item** instead. Editing an unlinked match explicitly links it to this ingredient; an existing link is retained.
 
 Saving, deleting, success, and error feedback is displayed. Conflicting actions and repeated submissions are blocked while a write is pending. Failed saves preserve all entered values and keep the form in Edit mode for retry. After an ambiguous connection failure, cancel and refresh before retrying to check the saved state.
 
-The original styling and responsive layout are retained. Quantities and units are stored as entered; there is no unit conversion or automatic merging. Inventory updates use only the selected ID and preserve extra stored fields.
+The green palette and storage colors are retained in a compact layout. Quantities and units are stored as entered; there is no unit conversion or automatic merging. Inventory updates use only the selected ID and preserve extra stored fields.
 
 ## Use the shopping list
 
-Use the header links to switch between **My Kitchen** (`/`) and **Shopping List** (`/shopping.html`). Both pages use the same responsive styling, and the current page is highlighted.
+Compare shopping items and stock directly in the shared screen. Each panel scrolls independently beneath its header.
 
-- **Add:** enter a name, planned quantity, and any unit, then choose **Add shopping item**.
-- **Edit:** choose **Edit** on an item, update the prefilled form, then **Save changes** or **Cancel**.
-- **Delete:** choose **Delete**, check the named inline confirmation, then choose **Confirm delete** or **Cancel**.
-- **Refresh:** saved changes remain after reloading. **Refresh list** retries a failed read without discarding visible items.
+- **Add:** choose **Add** in Shopping List, enter a name, planned quantity, and any unit, then **Add shopping item**.
+- **Edit:** open **More actions → Edit**, update the prefilled form, then **Save changes** or **Cancel**.
+- **Delete:** open **More actions → Delete**, check the named confirmation, then choose **Confirm delete** or **Cancel**.
+- **Refresh:** saved changes remain after reloading. **Refresh both lists** retries a failed read without discarding visible items.
 - **Check stock:** linked items show the current inventory quantity, unit, and storage location. Reload or refresh to fetch the latest stock. Missing inventory records are identified without removing the shopping item.
 - **Record purchase:** enter the actual purchased quantity, unit, storage, and optional expiry. Explicitly choose **Create a new inventory record** or **Add to linked existing record**. The planned amount stays unchanged. Combining requires an exact, case-sensitive unit match; different units require a new record. When combining, the selected storage and expiry apply to the entire combined record, as explained in the form.
 - **Completed items:** remain visible with the planned and purchased quantities. They no longer offer Record purchase. Purchase retries, including retries from another tab or after a lost response, do not add stock again. Deleting a shopping item does not delete its inventory record.
@@ -130,6 +138,8 @@ The same disposable record was then edited through Netlify Dev to clear expiry a
 Shopping List verification on **November 17, 2026** passed the build and all **27 existing tests**, with no new automated tests added. The local page rendered its navigation, form, and empty state. Real API checks created two disposable items with the same name and different custom units, edited one, and confirmed the saved values with a fresh read and the actual Netlify Function adapter. Invalid quantity, blank name, malformed IDs, and missing records returned the expected errors. Both disposable items were deleted by their exact IDs. A BSON-aware comparison confirmed all **5 ingredient records present at the start of this session were unchanged**, and the shopping collection was empty again. Browser automation was unreliable, so a complete browser interaction pass was not verified locally.
 
 Connected workflow verification on **November 18, 2026** used only labelled disposable records. Chrome verified inventory-to-shopping creation, the duplicate-edit offer and prefilled edit, linked current stock, an explicit destination choice, unit-mismatch validation, and purchasing 1.5 pieces against a plan of 4 (stock changed from 2 to 3.5). One-off API checks verified retry and concurrent-request idempotency for both existing and new inventory records, different planned/purchased units, invalid input, linking a legacy name match, and recovery from a deleted inventory link. An injected completion-write failure through the actual Netlify Function adapter rolled back the inventory write and left the item pending. All disposable records were removed by exact ID and name; a BSON-aware comparison confirmed the **5 original ingredients and 1 original shopping item remained unchanged**. No automated tests were added.
+
+Mobile redesign verification on **November 18, 2026** used a temporary server outside the repository with isolated in-memory collections and the real API/frontend code. It could not connect to MongoDB. Chrome reviewed 320×568 and 390×844 phone viewports and a 768×1024 tablet viewport; Safari reviewed 1280×800 desktop. Both panels stayed visible, scrolled independently, and retained their headers. Layout measurements found no horizontal overflow, no visible button targets below 44px, and all inputs at least 16px. Long names and custom units wrapped within cards. Browser checks covered bottom sheets, centered dialogs, keyboard menu access, Escape cancellation, Create/Edit/Delete, a failed edit and retry with retained values, duplicate-plan editing, exact-unit validation, and synchronized purchases into both existing and new inventory records. Planned quantities stayed distinct from purchased quantities. All writes used temporary fixtures; no existing database records were changed. The build and all 27 existing tests passed. The supplied ZIP was not available locally, so the redesign was adapted directly to the current source. These are desktop browser viewport checks; a physical-phone software-keyboard pass was not performed.
 
 ## Netlify deployment
 

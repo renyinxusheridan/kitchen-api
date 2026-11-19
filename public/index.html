@@ -2,41 +2,55 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="See what's in your kitchen and plan what to buy with your shopping list.">
-  <title>My Kitchen · Kitchen inventory</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#edf3ed">
+  <meta name="description" content="Your kitchen and shopping list, together. Plan groceries and record purchases in one place.">
+  <title>Kitchen · Inventory & shopping</title>
   <link rel="stylesheet" href="/styles.css">
+  <script src="/ui.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/shopping.js" defer></script>
 </head>
 <body>
-  <header class="site-header">
-    <div class="brand">
-      <span class="brand-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v6a3 3 0 0 0 6 0V3M8 3v18M19 21V3c-4 2-4 8 0 9"/></svg>
-      </span>
-      Kitchen inventory
-    </div>
-    <nav class="site-nav" aria-label="Main navigation">
-      <a href="/" aria-current="page">My Kitchen</a>
-      <a href="/shopping.html">Shopping List</a>
-    </nav>
+  <a class="skip-link" href="#ingredient-list">Skip to My Kitchen</a>
+  <a class="skip-link" href="#shopping-list">Skip to Shopping List</a>
+  <header class="app-header">
+    <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v6a3 3 0 0 0 6 0V3M8 3v18M19 21V3c-4 2-4 8 0 9"/></svg></span>
+    <h1>Kitchen</h1>
   </header>
-
-  <main>
-    <div class="intro">
-      <p class="eyebrow">A place for everything</p>
-      <h1>Your kitchen, at a glance.</h1>
-      <p>Add what you have, then see it all in one place.</p>
-    </div>
-
-    <div class="workspace">
-      <section class="form-panel" aria-labelledby="add-heading">
-        <div class="section-intro">
-          <span class="step-mark" aria-hidden="true">+</span>
-          <div><h2 id="add-heading">Add an ingredient</h2><p>A small addition. A more organized kitchen.</p></div>
+  <main class="workspace">
+    <section class="list-panel kitchen-panel" aria-labelledby="inventory-heading">
+      <header class="panel-header">
+        <h2 id="inventory-heading">My Kitchen <span id="ingredient-count" class="count" aria-label="Ingredient count">—</span></h2>
+        <div class="panel-actions">
+          <button id="refresh-button" class="button icon-button" type="button" aria-label="Refresh both lists" title="Refresh both lists">↻</button>
+          <button id="add-ingredient" class="button add-button" type="button" aria-label="Add ingredient"><span aria-hidden="true">+</span> Add</button>
         </div>
-        <p class="form-hint">All fields are required except expiry date.</p>
-        <form id="ingredient-form">
+      </header>
+      <div id="ingredient-list" class="list-scroll" tabindex="0" role="region" aria-label="My Kitchen items" aria-busy="true">
+        <p id="list-message" class="list-message" role="status" aria-live="polite">Loading your ingredients…</p>
+        <ul id="ingredient-cards" class="ingredient-grid" aria-label="Ingredients"></ul>
+      </div>
+    </section>
+    <section class="list-panel shopping-panel" aria-labelledby="shopping-heading">
+      <header class="panel-header">
+        <h2 id="shopping-heading">Shopping List <span id="shopping-count" class="count" aria-label="Shopping item count">—</span></h2>
+        <div class="panel-actions">
+          <button id="shopping-refresh" class="button icon-button" type="button" aria-label="Refresh both lists" title="Refresh both lists">↻</button>
+          <button id="add-shopping" class="button add-button" type="button" aria-label="Add shopping item"><span aria-hidden="true">+</span> Add</button>
+        </div>
+      </header>
+      <div id="shopping-list" class="list-scroll" tabindex="0" role="region" aria-label="Shopping List items" aria-busy="true">
+        <p id="shopping-list-message" class="list-message" role="status" aria-live="polite">Loading your shopping list…</p>
+        <ul id="shopping-cards" class="ingredient-grid" aria-label="Shopping items"></ul>
+      </div>
+    </section>
+  </main>
+  <p id="app-notice" class="app-notice" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+  <noscript><p class="noscript-message">Enable JavaScript to view and manage your kitchen.</p></noscript>
+  <dialog id="ingredient-dialog" class="sheet" aria-labelledby="add-heading">
+    <header class="sheet-header"><h2 id="add-heading">Add an ingredient</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
+    <div class="sheet-content"><form autocomplete="off" id="ingredient-form">
           <div class="field">
             <label for="name">Name</label>
             <input id="name" name="name" type="text" maxlength="100" placeholder="e.g. Cherry tomatoes" required>
@@ -67,25 +81,83 @@
           <button class="button primary" id="save-button" type="submit"><span aria-hidden="true">+</span> Add ingredient</button>
           <button class="button secondary cancel-edit" id="cancel-edit-button" type="button" hidden>Cancel</button>
           <p id="form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
-        </form>
-        <p class="persistence-note"><span aria-hidden="true">✓</span> Saved ingredients stay here when you reload.</p>
-      </section>
-
-      <section class="inventory-panel" aria-labelledby="inventory-heading">
-        <div class="inventory-header">
-          <div><p class="eyebrow">What you have</p><h2 id="inventory-heading">Your ingredients <span id="ingredient-count" class="count" aria-label="Ingredient count">—</span></h2></div>
-          <button id="refresh-button" class="button secondary" type="button">Refresh list</button>
-        </div>
-        <p class="inventory-note">A little less guessing next time you open the fridge.</p>
-        <p id="operation-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
-        <div id="ingredient-list" aria-busy="true">
-          <p id="list-message" class="list-message" role="status" aria-live="polite">Loading your ingredients…</p>
-          <ul id="ingredient-cards" class="ingredient-grid" aria-label="Ingredients"></ul>
-        </div>
-        <noscript><p class="list-message error">Enable JavaScript to load ingredients and use the form.</p></noscript>
-      </section>
-    </div>
-    <footer>Collecting Data From Users and Displaying It Back to Them</footer>
-  </main>
+        </form></div>
+  </dialog>
+  <dialog id="shopping-dialog" class="sheet" aria-labelledby="shopping-form-heading">
+    <header class="sheet-header"><h2 id="shopping-form-heading">Add a shopping item</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
+    <div class="sheet-content"><div id="shopping-editor"><form autocomplete="off" id="shopping-form">
+          <div class="field">
+            <label for="shopping-name">Name</label>
+            <input id="shopping-name" name="name" type="text" maxlength="100" placeholder="e.g. Cherry tomatoes" required>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="shopping-quantity">Planned quantity</label>
+              <input id="shopping-quantity" name="plannedQuantity" type="number" min="0" step="any" placeholder="e.g. 2" required aria-describedby="shopping-quantity-hint">
+            </div>
+            <div class="field">
+              <label for="shopping-unit">Unit</label>
+              <input id="shopping-unit" name="unit" type="text" maxlength="40" placeholder="e.g. bags" required aria-describedby="shopping-unit-hint">
+            </div>
+          </div>
+          <p id="shopping-quantity-hint" class="input-hint">Quantity must be greater than zero.</p>
+          <p id="shopping-unit-hint" class="input-hint">Use your preferred unit. No conversion is applied.</p>
+          <button class="button primary" id="shopping-save" type="submit"><span aria-hidden="true">+</span> Add shopping item</button>
+          <button class="button secondary cancel-edit" id="shopping-cancel-edit" type="button" hidden>Cancel</button>
+          <p id="shopping-form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        </form></div></div>
+  </dialog>
+  <dialog id="purchase-dialog" class="sheet" aria-labelledby="purchase-heading">
+    <header class="sheet-header"><h2 id="purchase-heading">Record purchase</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
+    <div class="sheet-content"><div id="purchase-panel"><p id="purchase-name" class="item-name"></p><p id="purchase-context" class="form-hint"></p><form autocomplete="off" id="purchase-form">
+          <div class="field-row">
+            <div class="field">
+              <label for="purchase-quantity">Purchased quantity</label>
+              <input id="purchase-quantity" name="quantity" type="number" min="0" step="any" required aria-describedby="purchase-quantity-hint">
+            </div>
+            <div class="field">
+              <label for="purchase-unit">Purchased unit</label>
+              <input id="purchase-unit" name="unit" type="text" maxlength="40" required>
+            </div>
+          </div>
+          <p id="purchase-quantity-hint" class="input-hint">Enter what you actually bought. It can differ from your plan.</p>
+          <div class="field">
+            <label for="purchase-destination">Save to My Kitchen</label>
+            <select id="purchase-destination" name="destination" required aria-describedby="purchase-destination-hint">
+              <option value="" disabled selected>Choose where to save</option>
+              <option value="new">Create a new inventory record</option>
+              <option value="existing" id="purchase-existing-option">Add to linked existing record</option>
+            </select>
+          </div>
+          <p id="purchase-destination-hint" class="input-hint">Quantities combine only when units match exactly. Units are never converted.</p>
+          <div class="field">
+            <label for="purchase-storage">Storage location</label>
+            <select id="purchase-storage" name="storage" required>
+              <option value="fridge">Fridge</option>
+              <option value="freezer">Freezer</option>
+              <option value="pantry">Pantry</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="purchase-expiry">Expiry date <span class="optional">(optional)</span></label>
+            <input id="purchase-expiry" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
+          </div>
+          <button class="button primary" id="purchase-save" type="submit">Save purchase to My Kitchen</button>
+          <button class="button secondary cancel-edit" id="purchase-cancel" type="button">Cancel</button>
+          <p id="purchase-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        </form></div></div>
+  </dialog>
+  <dialog id="plan-dialog" class="sheet" aria-labelledby="plan-heading">
+    <header class="sheet-header"><h2 id="plan-heading">Add to shopping list</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
+    <div class="sheet-content"><div id="plan-content"></div></div>
+  </dialog>
+  <dialog id="ingredient-delete-dialog" class="sheet" aria-labelledby="ingredient-delete-heading">
+    <header class="sheet-header"><h2 id="ingredient-delete-heading">Delete ingredient?</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
+    <div class="sheet-content"><div id="ingredient-delete-content"></div><p id="operation-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p></div>
+  </dialog>
+  <dialog id="shopping-delete-dialog" class="sheet" aria-labelledby="shopping-delete-heading">
+    <header class="sheet-header"><h2 id="shopping-delete-heading">Delete shopping item?</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
+    <div class="sheet-content"><div id="shopping-delete-content"></div><p id="shopping-operation-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p></div>
+  </dialog>
 </body>
 </html>
