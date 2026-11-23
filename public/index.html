@@ -50,6 +50,7 @@
           <button id="add-shopping" class="button add-button" type="button" aria-label="Add shopping item"><span aria-hidden="true">+</span> Add</button>
         </div>
       </header>
+      <div class="category-filter"><select id="shopping-category-filter" aria-label="Filter Shopping List by category"><option value="">All categories</option><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other">Other</option></select></div>
       <div id="shopping-list" class="list-scroll" tabindex="0" role="region" aria-label="Shopping List items" aria-busy="true">
         <p id="shopping-list-message" class="list-message" role="status" aria-live="polite">Loading your shopping list…</p>
         <ul id="shopping-cards" class="ingredient-grid" aria-label="Shopping items"></ul>
@@ -113,6 +114,7 @@
           </div>
           <p id="shopping-quantity-hint" class="input-hint">Quantity must be greater than zero.</p>
 
+          <div class="field"><label for="shopping-category">Category</label><select id="shopping-category" name="category" required><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other" selected>Other</option></select></div>
           <button class="button primary" id="shopping-save" type="submit"><span aria-hidden="true">+</span> Add shopping item</button>
           <button class="button secondary cancel-edit" id="shopping-cancel-edit" type="button" hidden>Cancel</button>
           <p id="shopping-form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>

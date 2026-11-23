@@ -66,3 +66,70 @@ test('Purchases create selected/fallback categories, preserve existing category,
  const invalid=await plan();assert.equal((await request('/api/shopping-items/'+invalid._id+'/purchase','POST',{...purchase,category:'invalid'})).status,400);
  const fresh=await request('/api/ingredients?category=grains');assert.ok(fresh.body.ingredients.some(row=>row._id===saved.body.ingredient._id));
 });
+
+test('Shopping categories persist on create/edit and omission, copy on linking, and validate input', async () => {
+ reset();
+ const plan = {name:'Shopping category check',plannedQuantity:2,unit:'bags',category:'protein'};
+ const created=await request('/api/shopping-items','POST',plan);assert.equal(created.status,201);assert.equal(created.body.category,'protein');
+ const path='/api/shopping-items/'+created.body._id;
+ const {category,...omitted}=plan;
+ assert.equal((await request(path,'PUT',omitted)).body.category,'protein');
+ assert.equal((await request(path,'PUT',{...plan,category:'grains'})).body.category,'grains');
+ assert.equal((await request('/api/shopping-items?category=grains')).body.shoppingItems[0].category,'grains');
+ assert.equal(rows.shopping_items[0].category,'grains');
+ for(const invalid of ['',null,3,'invalid',{$ne:null}]) {
+  assert.equal((await request('/api/shopping-items','POST',{...plan,category:invalid})).status,400);
+  assert.equal((await request(path,'PUT',{...plan,category:invalid})).status,400);
+ }
+ assert.equal((await request('/api/shopping-items?category=invalid')).status,400);
+ const linked=await request('/api/shopping-items','POST',{...omitted,name:rows.ingredients[0].name,ingredientId:String(rows.ingredients[0]._id)});
+ assert.equal(linked.body.category,'fruits_vegetables');assert.equal(rows.shopping_items[1].category,'fruits_vegetables');
+ const duplicate=await request('/api/shopping-items','POST',{...omitted,ingredientId:String(rows.ingredients[0]._id)});
+ assert.equal(duplicate.status,409);assert.equal(duplicate.body.existingItem.category,'fruits_vegetables');
+ await request('/api/shopping-items/'+linked.body._id,'PUT',{...plan,category:'protein'});
+ assert.equal(rows.ingredients[0].category,'fruits_vegetables');
+});
+
+test('Legacy shopping category fallback is consistent in API filtering and leaves records/status unchanged', async () => {
+ reset();
+ const base={name:'Legacy shopping',plannedQuantity:1,unit:'bags'};
+ rows.shopping_items=[
+  {...base,_id:new ObjectId(),ingredientId:rows.ingredients[0]._id,status:'completed'},
+  {...base,_id:new ObjectId(),ingredientId:rows.ingredients[1]._id},
+  {...base,_id:new ObjectId(),ingredientId:rows.ingredients[2]._id},
+  {...base,_id:new ObjectId(),ingredientId:new ObjectId()},
+  {...base,_id:new ObjectId()},
+  {...base,_id:new ObjectId(),ingredientId:rows.ingredients[0]._id,category:'protein'}
+ ];
+ const before=JSON.stringify(rows);
+ const all=await request('/api/shopping-items');assert.deepEqual(all.body.shoppingItems.map(item=>item.category),['fruits_vegetables','grains','other','other','other','protein']);
+ for(const category of ['protein','grains','fruits_vegetables','other']) {
+  const filtered=await request('/api/shopping-items?category='+category);
+  assert.deepEqual(filtered.body.shoppingItems.map(item=>item._id),all.body.shoppingItems.filter(item=>item.category===category).map(item=>item._id));
+ }
+ assert.equal(JSON.stringify(rows),before);
+ const linkedMatches=await request('/api/shopping-items?ingredientId='+rows.ingredients[0]._id+'&category=protein');
+ assert.equal(linkedMatches.body.count,1);assert.equal(linkedMatches.body.shoppingItems[0].category,'protein');
+});
+
+test('Shopping category defaults new purchases, permits overrides, and never changes existing inventory categories',async()=>{
+ reset();const base={name:'Purchase category',plannedQuantity:8,unit:'bags',category:'grains'};
+ const purchase={quantity:2,unit:'bags',storage:'fridge',destination:'new'};
+ const plan=await request('/api/shopping-items','POST',base);
+ const path='/api/shopping-items/'+plan.body._id+'/purchase';
+ const saved=await request(path,'POST',purchase);assert.equal(saved.body.ingredient.category,'grains');
+ assert.equal(saved.body.shoppingItem.category,'grains');assert.equal(saved.body.shoppingItem.plannedQuantity,8);
+ assert.equal((await request(path,'POST',purchase)).body.alreadyCompleted,true);
+ const override=await request('/api/shopping-items','POST',base);
+ const changed=await request('/api/shopping-items/'+override.body._id+'/purchase','POST',{...purchase,category:'protein'});
+ assert.equal(changed.body.ingredient.category,'protein');assert.equal(changed.body.shoppingItem.category,'grains');
+ const linked=await request('/api/shopping-items','POST',{...base,ingredientId:String(rows.ingredients[0]._id)});
+ const combined=await request('/api/shopping-items/'+linked.body._id+'/purchase','POST',{...purchase,destination:'existing',category:'protein'});
+ assert.equal(combined.body.ingredient.category,'fruits_vegetables');assert.equal(combined.body.shoppingItem.category,'grains');
+ assert.equal((await request('/api/shopping-items?category=grains')).body.count,3);
+ const legacy={_id:new ObjectId(),name:'Legacy purchase',plannedQuantity:1,unit:'bags',ingredientId:rows.ingredients[0]._id};
+ rows.shopping_items.push(legacy);
+ const inherited=await request('/api/shopping-items/'+legacy._id+'/purchase','POST',purchase);
+ assert.equal(inherited.status,200);
+ assert.equal(inherited.body.ingredient.category,'fruits_vegetables');
+});

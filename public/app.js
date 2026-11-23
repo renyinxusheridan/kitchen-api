@@ -296,7 +296,7 @@ function shoppingPlan() {
     plan.setAttribute('aria-busy', 'true');
     message(feedback, 'Saving your shopping item…');
     const selected = action.selected;
-    const body = { name: selected?.name || action.ingredient.name, plannedQuantity: action.plannedQuantity, unit: action.unit };
+    const body = { name: selected?.name || action.ingredient.name, plannedQuantity: action.plannedQuantity, unit: action.unit, category: selected?.category || action.ingredient.category || 'other' };
     if (!selected?.ingredientId) body.ingredientId = action.ingredient._id;
     try {
       const response = await fetch('/api/shopping-items' + (selected ? '/' + encodeURIComponent(selected._id) : ''), {

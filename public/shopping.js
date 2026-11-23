@@ -18,7 +18,8 @@
   const purchaseMessage = document.querySelector('#purchase-message');
   const purchaseHint = document.querySelector('#purchase-destination-hint');
   const purchaseFields = ['quantity', 'unit', 'destination', 'storage', 'expiryDate'];
-  const fields = ['name', 'plannedQuantity', 'unit'];
+  const fields = ['name', 'plannedQuantity', 'unit', 'category'];
+  const categoryFilter = document.querySelector('#shopping-category-filter');
   const endpoint = '/api/shopping-items';
   const ui = globalThis.kitchenUI;
   let adding = false;
@@ -43,6 +44,7 @@
     const busy = saving || deleting || purchasing;
     const active = busy || editing !== null || pendingDelete !== null || purchase !== null || adding;
     refreshButton.disabled = loading || active;
+    categoryFilter.disabled = active;
     saveButton.disabled = busy || pendingDelete !== null || purchase !== null;
     cancelEditButton.disabled = busy;
     for (const key of fields) form.elements[key].disabled = busy || pendingDelete !== null || purchase !== null;
@@ -75,7 +77,7 @@
     discardOlderLoad();
     formHeading.textContent = 'Edit a shopping item';
     for (const key of fields) {
-      form.elements[key].value = item[key];
+      form.elements[key].value = key === 'category' ? item.category || 'other' : item[key];
       form.elements[key].setCustomValidity('');
     }
     globalThis.kitchenUnits.set(form.elements.unit, item.unit);
@@ -108,7 +110,7 @@
     cards.replaceChildren(...items.map(itemCard));
     count.textContent = items.length;
     listMessage.className = 'list-message';
-    listMessage.textContent = items.length ? '' : 'Your list is empty. Add an item.';
+    listMessage.textContent = items.length ? '' : categoryFilter.value ? 'No shopping items match this category.' : 'Your list is empty. Add an item.';
     syncControls();
   }
 
@@ -206,7 +208,7 @@
     purchase = item;
     discardOlderLoad();
     purchaseForm.reset();
-    purchaseForm.elements.category.value = item.currentInventory?.category || 'other';
+    purchaseForm.elements.category.value = item.category || 'other';
     purchaseForm.elements.quantity.value = item.plannedQuantity;
     globalThis.kitchenUnits.set(purchaseForm.elements.unit, item.unit);
     purchaseForm.elements.storage.value = item.currentInventory?.storage || 'fridge';
@@ -318,7 +320,8 @@
     listMessage.textContent = 'Loading your shopping list…';
     syncControls();
     try {
-      const response = await fetch(endpoint, { cache: 'no-store' });
+      const query = categoryFilter.value ? '?category=' + encodeURIComponent(categoryFilter.value) : '';
+      const response = await fetch(endpoint + query, { cache: 'no-store' });
       if (!response.ok) throw new Error('Unable to load shopping items.');
       const data = await response.json();
       if (!Array.isArray(data.shoppingItems)) throw new Error('The shopping list could not be read.');
@@ -362,7 +365,8 @@
     const item = {
       name: form.elements.name.value.trim(),
       plannedQuantity: Number(form.elements.plannedQuantity.value),
-      unit: globalThis.kitchenUnits.value(form.elements.unit).trim()
+      unit: globalThis.kitchenUnits.value(form.elements.unit).trim(),
+      category: form.elements.category.value
     };
     saving = true;
     ui.busy(true);
@@ -430,5 +434,6 @@
     syncControls();
     form.elements.name.focus();
   });
+  categoryFilter.addEventListener('change', loadItems);
   loadItems();
 })();
