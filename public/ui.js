@@ -65,6 +65,34 @@
   window.addEventListener('resize', sizeSheets);
   sizeSheets();
 
+  let selected = 'kitchen';
+  try { if (localStorage.getItem('kitchen.selectedView') === 'shopping') selected = 'shopping'; } catch {}
+  let comparing = false;
+  const tabs = ['kitchen', 'shopping'].map(name => document.querySelector('#' + name + '-tab'));
+  const compare = document.querySelector('#compare-button');
+  function showView() {
+    closeMenus();
+    document.querySelector('.workspace').classList.toggle('comparing', comparing);
+    for (const name of ['kitchen', 'shopping']) {
+      document.querySelector('#' + name + '-panel').hidden = !comparing && selected !== name;
+      document.querySelector('#' + name + '-tab').setAttribute('aria-pressed', String(!comparing && selected === name));
+    }
+    compare.textContent = comparing ? 'Exit Compare' : 'Compare';
+    compare.setAttribute('aria-pressed', String(comparing));
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => {
+      selected = index ? 'shopping' : 'kitchen'; comparing = false;
+      try { localStorage.setItem('kitchen.selectedView', selected); } catch {}
+      showView();
+    });
+  });
+  compare.addEventListener('click', () => { comparing = !comparing; showView(); });
+  document.querySelectorAll('.skip-link').forEach(link => link.addEventListener('click', () => {
+    selected = link.hash === '#shopping-list' ? 'shopping' : 'kitchen'; comparing = false; showView();
+  }));
+  showView();
+
   globalThis.kitchenUI = {
     register(name, refresh) { refreshers.set(name, refresh); },
     async refreshAll() {

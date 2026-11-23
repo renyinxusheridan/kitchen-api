@@ -77,6 +77,7 @@
       form.elements[key].value = item[key];
       form.elements[key].setCustomValidity('');
     }
+    globalThis.kitchenUnits.set(form.elements.unit, item.unit);
     saveButton.textContent = 'Save changes';
     cancelEditButton.hidden = false;
     message(formMessage, '');
@@ -123,8 +124,8 @@
     if (item.ingredientId) {
       const stock = item.currentInventory;
       card.append(element('p', 'stock-note', stock
-        ? 'In kitchen: ' + stock.quantity + ' ' + stock.unit + ' · ' + stock.storage
-        : 'Linked stock removed. Record a purchase as a new item.'));
+        ? 'In kitchen: ' + stock.quantity + ' ' + stock.unit
+        : 'Linked inventory record unavailable.'));
     }
     if (completed && item.purchase) {
       card.append(element('p', 'purchase-note', 'Purchased: ' + item.purchase.quantity + ' ' + item.purchase.unit + ' · ' + item.purchase.storage));
@@ -205,7 +206,7 @@
     discardOlderLoad();
     purchaseForm.reset();
     purchaseForm.elements.quantity.value = item.plannedQuantity;
-    purchaseForm.elements.unit.value = item.unit;
+    globalThis.kitchenUnits.set(purchaseForm.elements.unit, item.unit);
     purchaseForm.elements.storage.value = item.currentInventory?.storage || 'fridge';
     for (const key of purchaseFields) purchaseForm.elements[key].setCustomValidity('');
     document.querySelector('#purchase-name').textContent = item.name;
@@ -256,7 +257,7 @@
     if (!purchase || purchasing || saving || deleting) return;
     const values = purchaseForm.elements;
     const quantity = Number(values.quantity.value);
-    const unit = values.unit.value.trim();
+    const unit = globalThis.kitchenUnits.value(values.unit).trim();
     values.quantity.setCustomValidity(Number.isFinite(quantity) && quantity > 0 ? '' : 'Enter a purchased quantity greater than zero.');
     values.unit.setCustomValidity(!unit ? 'Enter a unit.' : values.destination.value === 'existing' && unit !== purchase.currentInventory?.unit
       ? 'Units must match exactly. Use the existing unit or choose a new record.' : '');
@@ -275,6 +276,7 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to record the purchase.');
+      globalThis.kitchenUnits.remember(unit);
       items = items.map(item => item._id === selected._id ? data.shoppingItem
         : data.ingredient && item.ingredientId === data.ingredient._id ? { ...item, currentInventory: data.ingredient } : item);
       finishPurchase();
@@ -355,7 +357,7 @@
     const item = {
       name: form.elements.name.value.trim(),
       plannedQuantity: Number(form.elements.plannedQuantity.value),
-      unit: form.elements.unit.value.trim()
+      unit: globalThis.kitchenUnits.value(form.elements.unit).trim()
     };
     saving = true;
     ui.busy(true);
@@ -375,6 +377,7 @@
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to save the shopping item. Please try again.');
       items = edited ? items.map(record => record._id === edited._id ? data : record) : [...items, data];
+      globalThis.kitchenUnits.remember(item.unit);
       finishEditing();
       message(formMessage, (edited ? 'Updated “' : 'Added “') + data.name + '”. Your shopping item is saved.', 'success');
       renderItems();
@@ -415,6 +418,7 @@
     if (saving || deleting || editing || pendingDelete || purchase || adding) return;
     finishEditing();
     adding = true;
+    globalThis.kitchenUnits.set(form.elements.unit, globalThis.kitchenUnits.preferred());
     cancelEditButton.hidden = false;
     message(formMessage, '');
     ui.open('shopping-dialog', { onCancel: cancelShoppingEdit, busy: () => saving, fallback: '#add-shopping' });

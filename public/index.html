@@ -8,6 +8,7 @@
   <title>Kitchen · Inventory & shopping</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/ui.js" defer></script>
+  <script src="/units.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/shopping.js" defer></script>
 </head>
@@ -17,9 +18,15 @@
   <header class="app-header">
     <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v6a3 3 0 0 0 6 0V3M8 3v18M19 21V3c-4 2-4 8 0 9"/></svg></span>
     <h1>Kitchen</h1>
+    <button id="settings-button" class="button secondary" type="button">Settings</button>
+    <nav class="view-switch" aria-label="Kitchen views">
+      <button id="kitchen-tab" class="button" type="button" aria-controls="kitchen-panel" aria-pressed="true">My Kitchen</button>
+      <button id="shopping-tab" class="button" type="button" aria-controls="shopping-panel" aria-pressed="false">Shopping List</button>
+      <button id="compare-button" class="button" type="button" aria-pressed="false">Compare</button>
+    </nav>
   </header>
   <main class="workspace">
-    <section class="list-panel kitchen-panel" aria-labelledby="inventory-heading">
+    <section id="kitchen-panel" class="list-panel kitchen-panel" aria-labelledby="inventory-heading">
       <header class="panel-header">
         <h2 id="inventory-heading">My Kitchen <span id="ingredient-count" class="count" aria-label="Ingredient count">—</span></h2>
         <div class="panel-actions">
@@ -32,7 +39,7 @@
         <ul id="ingredient-cards" class="ingredient-grid" aria-label="Ingredients"></ul>
       </div>
     </section>
-    <section class="list-panel shopping-panel" aria-labelledby="shopping-heading">
+    <section id="shopping-panel" class="list-panel shopping-panel" hidden aria-labelledby="shopping-heading">
       <header class="panel-header">
         <h2 id="shopping-heading">Shopping List <span id="shopping-count" class="count" aria-label="Shopping item count">—</span></h2>
         <div class="panel-actions">
@@ -62,7 +69,7 @@
             </div>
             <div class="field">
               <label for="unit">Unit</label>
-              <input id="unit" name="unit" type="text" maxlength="40" placeholder="e.g. pieces" required>
+              <select id="unit" name="unit" data-unit required></select>
             </div>
           </div>
           <p id="quantity-hint" class="input-hint">Quantity must be greater than zero.</p>
@@ -97,11 +104,11 @@
             </div>
             <div class="field">
               <label for="shopping-unit">Unit</label>
-              <input id="shopping-unit" name="unit" type="text" maxlength="40" placeholder="e.g. bags" required aria-describedby="shopping-unit-hint">
+              <select id="shopping-unit" name="unit" data-unit required></select>
             </div>
           </div>
           <p id="shopping-quantity-hint" class="input-hint">Quantity must be greater than zero.</p>
-          <p id="shopping-unit-hint" class="input-hint">Use your preferred unit. No conversion is applied.</p>
+
           <button class="button primary" id="shopping-save" type="submit"><span aria-hidden="true">+</span> Add shopping item</button>
           <button class="button secondary cancel-edit" id="shopping-cancel-edit" type="button" hidden>Cancel</button>
           <p id="shopping-form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -117,7 +124,7 @@
             </div>
             <div class="field">
               <label for="purchase-unit">Purchased unit</label>
-              <input id="purchase-unit" name="unit" type="text" maxlength="40" required>
+              <select id="purchase-unit" name="unit" data-unit required></select>
             </div>
           </div>
           <p id="purchase-quantity-hint" class="input-hint">Enter what you actually bought. It can differ from your plan.</p>
@@ -158,6 +165,16 @@
   <dialog id="shopping-delete-dialog" class="sheet" aria-labelledby="shopping-delete-heading">
     <header class="sheet-header"><h2 id="shopping-delete-heading">Delete shopping item?</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
     <div class="sheet-content"><div id="shopping-delete-content"></div><p id="shopping-operation-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p></div>
+  </dialog>
+  <dialog id="settings-dialog" class="sheet" aria-labelledby="settings-heading">
+    <header class="sheet-header"><h2 id="settings-heading">Settings</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
+    <div class="sheet-content">
+      <div class="field"><label for="default-unit">Default unit</label><select id="default-unit"></select></div>
+      <h3>Custom units</h3>
+      <ul id="custom-unit-list" class="custom-unit-list"></ul>
+      <form id="custom-unit-form"><div class="field"><label for="new-custom-unit">New custom unit</label><input id="new-custom-unit" type="text" maxlength="40" required></div><button class="button secondary" type="submit">Add unit</button></form>
+      <p id="settings-message" class="form-message" role="status"></p>
+    </div>
   </dialog>
 </body>
 </html>

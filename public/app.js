@@ -58,6 +58,7 @@ function startEditing(ingredient) {
   list.setAttribute('aria-busy', 'false');
   formHeading.textContent = 'Edit an ingredient';
   for (const key of ['name', 'quantity', 'unit', 'storage']) form.elements[key].value = ingredient[key];
+  globalThis.kitchenUnits?.set(form.elements.unit, ingredient.unit);
   form.elements.expiryDate.value = ingredient.expiryDate ? ingredient.expiryDate.slice(0, 10) : '';
   quantityInput.setCustomValidity('');
   saveButton.textContent = 'Save changes';
@@ -194,7 +195,7 @@ function ingredientCard(ingredient) {
 
 async function openShopping(ingredient) {
   if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
-  const action = { ingredient, checking: true, matches: [], selected: null, plannedQuantity: 1, unit: ingredient.unit };
+  const action = { ingredient, checking: true, matches: [], selected: null, plannedQuantity: 1, unit: globalThis.kitchenUnits?.preferred() || ingredient.unit };
   shoppingAction = action;
   ++loadVersion;
   loading = false;
@@ -256,7 +257,7 @@ function shoppingPlan() {
   quantity.step = 'any';
   quantity.required = true;
   quantity.value = action.plannedQuantity;
-  const unit = element('input');
+  const unit = element(globalThis.kitchenUnits ? 'select' : 'input');
   unit.id = 'shopping-plan-unit';
   unit.type = 'text';
   unit.maxLength = 40;
@@ -269,6 +270,7 @@ function shoppingPlan() {
     input.addEventListener('input', () => input.setCustomValidity(''));
     field.append(label, input);
     row.append(field);
+    if (input === unit) globalThis.kitchenUnits?.bind(unit, action.unit);
   }
   const submit = element('button', 'button primary', action.selected ? 'Save shopping changes' : 'Add to shopping list');
   submit.type = 'submit';
@@ -280,10 +282,10 @@ function shoppingPlan() {
     event.preventDefault();
     if (action.saving) return;
     quantity.setCustomValidity(Number.isFinite(Number(quantity.value)) && Number(quantity.value) > 0 ? '' : 'Enter a planned quantity greater than zero.');
-    unit.setCustomValidity(unit.value.trim() ? '' : 'Enter a unit.');
+    unit.setCustomValidity((globalThis.kitchenUnits?.value(unit) ?? unit.value).trim() ? '' : 'Enter a unit.');
     if (!plan.reportValidity()) return;
     action.plannedQuantity = Number(quantity.value);
-    action.unit = unit.value.trim();
+    action.unit = (globalThis.kitchenUnits?.value(unit) ?? unit.value).trim();
     action.saving = true;
     kitchenUI?.busy(true);
     quantity.disabled = unit.disabled = submit.disabled = cancel.disabled = true;
@@ -306,6 +308,7 @@ function shoppingPlan() {
         }
         throw new Error(data.error || 'Unable to save the shopping item.');
       }
+      globalThis.kitchenUnits?.remember(body.unit);
       shoppingAction = null;
       renderInventory();
       message(operationMessage, (selected ? 'Updated “' : 'Added “') + data.name + '” on your shopping list.', 'success');
@@ -369,7 +372,7 @@ form.addEventListener('submit', async (event) => {
   const ingredient = {
     name: form.elements.name.value.trim(),
     quantity: Number(quantityInput.value),
-    unit: form.elements.unit.value.trim(),
+    unit: (globalThis.kitchenUnits?.value(form.elements.unit) ?? form.elements.unit.value).trim(),
     storage: form.elements.storage.value,
     expiryDate: form.elements.expiryDate.value || null
   };
@@ -389,6 +392,7 @@ form.addEventListener('submit', async (event) => {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Unable to save the ingredient. Please try again.');
+    globalThis.kitchenUnits?.remember(ingredient.unit);
     finishEditing();
     formMessage.className = 'form-message success';
     formMessage.textContent = (edited ? 'Updated “' : 'Added “') + data.name + '”. Your ingredient is saved.';
@@ -442,6 +446,7 @@ document.querySelector('#add-ingredient')?.addEventListener('click', () => {
   if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
   finishEditing();
   adding = true;
+  globalThis.kitchenUnits?.set(form.elements.unit, globalThis.kitchenUnits.preferred());
   cancelEditButton.hidden = false;
   message(formMessage, '');
   kitchenUI.open('ingredient-dialog', { onCancel: cancelIngredient, busy: () => saving, fallback: '#add-ingredient' });
