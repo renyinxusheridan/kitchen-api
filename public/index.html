@@ -36,6 +36,7 @@
           <button id="add-ingredient" class="button add-button" type="button" aria-label="Add ingredient"><span aria-hidden="true">+</span> Add</button>
         </div>
       </header>
+      <div class="category-filter"><select id="category-filter" aria-label="Filter My Kitchen by category"><option value="">All categories</option><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other">Other</option></select></div>
       <div id="ingredient-list" class="list-scroll" tabindex="0" role="region" aria-label="My Kitchen items" aria-busy="true">
         <p id="list-message" class="list-message" role="status" aria-live="polite">Loading your ingredients…</p>
         <ul id="ingredient-cards" class="ingredient-grid" aria-label="Ingredients"></ul>
@@ -87,6 +88,7 @@
             <label for="expiryDate">Expiry date <span class="optional">(optional)</span></label>
             <input id="expiryDate" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
           </div>
+          <div class="field"><label for="category">Category</label><select id="category" name="category" required><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other" selected>Other</option></select></div>
           <button class="button primary" id="save-button" type="submit"><span aria-hidden="true">+</span> Add ingredient</button>
           <button class="button secondary cancel-edit" id="cancel-edit-button" type="button" hidden>Cancel</button>
           <p id="form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -151,6 +153,7 @@
             <label for="purchase-expiry">Expiry date <span class="optional">(optional)</span></label>
             <input id="purchase-expiry" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
           </div>
+          <div class="field" id="purchase-category-field" hidden><label for="purchase-category">Category</label><select id="purchase-category" name="category" disabled required><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other" selected>Other</option></select></div>
           <button class="button primary" id="purchase-save" type="submit">Save purchase to My Kitchen</button>
           <button class="button secondary cancel-edit" id="purchase-cancel" type="button">Cancel</button>
           <p id="purchase-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>

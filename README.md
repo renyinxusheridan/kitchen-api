@@ -154,3 +154,14 @@ For live write verification, create a new clearly labelled disposable record, ed
 
 
 Refinement verification on **November 22, 2026** passed the build and all 27 existing tests. Isolated in-memory fixtures verified a shopping write using a custom default, trimmed custom names, duplicate rejection, legacy `grams` edit prefilling, tab persistence after reload, and Compare return behavior. Safari viewport reviews at 390×844, 768×1024, and 1280×800 found no horizontal overflow or visible button targets below 44px; inputs measured at least 16px. Comparison panels were stacked on phones and side by side on larger screens. Bottom clearance reserves space for hosting badges. API/database source files were unchanged and no real records were modified. Physical-device keyboard behavior and every unit/purchase combination were not manually exercised in this update.
+
+
+## Ingredient categories
+
+Ingredient category values are `protein` (Protein), `grains` (Grains), `fruits_vegetables` (Fruits & Vegetables), and `other` (Other). Existing records are never automatically classified or migrated. Missing/null/empty categories are returned as `other` without writing that fallback to existing documents.
+
+`GET /api/ingredients?category=fruits_vegetables` filters in MongoDB and can be combined with `name` and `storage`, for example `?category=fruits_vegetables&name=spinach&storage=fridge`. `category=other` includes explicit Other and missing/null/empty values. Invalid category parameters or submitted category values return HTTP 400. My Kitchen's All categories selector makes a new API request and shows a distinct empty-match state.
+
+Ingredient POST accepts category and defaults to `other` if omitted. PUT writes category only when explicitly provided, preserving the stored value when omitted. Add/Edit show a Category dropdown; Edit prefills the saved category. Purchase recording shows Category only for a new inventory record (default Other, prefilled from the link when available). Adding purchased quantities to an existing record never changes its category. Unit matching and transaction/idempotency rules are unchanged.
+
+Category verification on **November 22, 2026** passed the build and **31 tests**. New isolated tests cover category/combined filters, invalid categories, read-only fallback, creation, editing, omission preservation, fresh reads, purchases into new/existing records, exact-unit rejection and repeated purchase prevention. The frontend adapter checks API filter URLs, empty matches, prefilling, saving and reload. Safari at a 390px phone viewport verified Fruits & Vegetables filtering and an Edit category change retained after browser reload, using a temporary in-memory server that cannot connect to MongoDB. No real database writes or migrations were performed. Atlas write persistence and a complete browser walkthrough of every category/purchase combination were not verified in this update.

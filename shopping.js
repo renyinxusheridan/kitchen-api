@@ -2,6 +2,7 @@ const express = require('express');
 const { ObjectId } = require('mongodb');
 const { getDatabase, withTransaction, connectionErrorMessage } = require('./db');
 const { validateIngredient } = require('./ingredient-validation');
+const { ingredientResponse } = require('./categories');
 
 const validId = id => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id);
 const requestError = (status, message) => Object.assign(new Error(message), { status });
@@ -18,8 +19,8 @@ async function withInventory(items) {
   if (!ids.length) return items;
   const db = await getDatabase();
   const inventory = await db.collection('ingredients').find({ _id: { $in: ids } })
-    .project({ name: 1, quantity: 1, unit: 1, storage: 1, expiryDate: 1 }).toArray();
-  const byId = new Map(inventory.map(ingredient => [String(ingredient._id), ingredient]));
+    .project({ name: 1, quantity: 1, unit: 1, storage: 1, expiryDate: 1, category: 1 }).toArray();
+  const byId = new Map(inventory.map(ingredient => [String(ingredient._id), ingredientResponse(ingredient)]));
   return items.map(item => ({ ...item, currentInventory: byId.get(String(item.ingredientId)) || null }));
 }
 
@@ -72,8 +73,9 @@ function validatePurchase(req, res, next) {
   }
   const input = { body: { ...req.body, name: 'Purchase' } };
   validateIngredient(input, res, () => {
-    const { quantity, unit, storage, expiryDate } = input.ingredient;
+    const { quantity, unit, storage, expiryDate, category } = input.ingredient;
     req.purchase = { quantity, unit, storage, expiryDate, destination: req.body.destination };
+    if (req.body.destination === 'new') req.purchase.category = category || 'other';
     next();
   });
 }
@@ -158,7 +160,7 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
         if (item.status === 'completed') {
           const ingredient = item.purchase?.ingredientId
             ? await inventory.findOne({ _id: item.purchase.ingredientId }, { session }) : null;
-          return { shoppingItem: { ...item, currentInventory: ingredient }, ingredient, alreadyCompleted: true };
+          return { shoppingItem: { ...item, currentInventory: ingredientResponse(ingredient) }, ingredient: ingredientResponse(ingredient), alreadyCompleted: true };
         }
 
         const { quantity, unit, storage, expiryDate, destination } = req.purchase;
@@ -178,7 +180,7 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
           );
           if (!ingredient) throw requestError(409, 'The linked inventory record changed. Refresh the list and try again.');
         } else {
-          ingredient = { _id: new ObjectId(), name: item.name, quantity, unit, storage, expiryDate };
+          ingredient = { _id: new ObjectId(), name: item.name, quantity, unit, storage, expiryDate, category: req.purchase.category };
           await inventory.insertOne(ingredient, { session });
         }
 
@@ -191,7 +193,7 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
           { session, returnDocument: 'after', upsert: false }
         );
         if (!shoppingItem) throw requestError(409, 'The shopping item changed. Refresh the list before trying again.');
-        return { shoppingItem: { ...shoppingItem, currentInventory: ingredient }, ingredient, alreadyCompleted: false };
+        return { shoppingItem: { ...shoppingItem, currentInventory: ingredientResponse(ingredient) }, ingredient: ingredientResponse(ingredient), alreadyCompleted: false };
       });
       res.json(result);
     } catch (error) {

@@ -1,3 +1,5 @@
+const { categories } = require('./categories');
+
 function validateIngredient(req, res, next) {
   const body = req.body;
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -17,6 +19,9 @@ function validateIngredient(req, res, next) {
   if (!['fridge', 'freezer', 'pantry'].includes(storage)) {
     return res.status(400).json({ error: 'Storage must be fridge, freezer, or pantry.' });
   }
+  if (Object.hasOwn(body, 'category') && !categories.includes(body.category)) {
+    return res.status(400).json({ error: 'Category must be protein, grains, fruits_vegetables, or other.' });
+  }
 
   let parsedExpiry = null;
   if (expiryDate !== undefined && expiryDate !== null && expiryDate !== '') {
@@ -30,8 +35,9 @@ function validateIngredient(req, res, next) {
     }
   }
 
-  // Only these five fields may be written; ignore extra client-supplied fields.
+  // Omitted category stays out of $set so legacy clients preserve saved values.
   req.ingredient = { name: name.trim(), quantity, unit: unit.trim(), storage, expiryDate: parsedExpiry };
+  if (Object.hasOwn(body, 'category')) req.ingredient.category = body.category;
   next();
 }
 

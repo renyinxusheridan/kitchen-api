@@ -11,6 +11,7 @@ const cancelEditButton = document.querySelector('#cancel-edit-button');
 const formHeading = document.querySelector('#add-heading');
 const operationMessage = document.querySelector('#operation-message');
 const kitchenUI = globalThis.kitchenUI;
+const categoryFilter = document.querySelector('#category-filter');
 let adding = false;
 let saving = false;
 let deleting = false;
@@ -29,6 +30,8 @@ function syncControls() {
   refreshButton.disabled = loading || active;
   saveButton.disabled = busy || pendingDelete !== null;
   cancelEditButton.disabled = busy;
+  if (categoryFilter) categoryFilter.disabled = active;
+  if (form.elements.category) form.elements.category.disabled = busy;
   for (const key of ['name', 'quantity', 'unit', 'storage', 'expiryDate']) form.elements[key].disabled = busy;
   for (const button of cardButtons) button.disabled = active;
 }
@@ -58,6 +61,7 @@ function startEditing(ingredient) {
   list.setAttribute('aria-busy', 'false');
   formHeading.textContent = 'Edit an ingredient';
   for (const key of ['name', 'quantity', 'unit', 'storage']) form.elements[key].value = ingredient[key];
+  if (form.elements.category) form.elements.category.value = ingredient.category || 'other';
   globalThis.kitchenUnits?.set(form.elements.unit, ingredient.unit);
   form.elements.expiryDate.value = ingredient.expiryDate ? ingredient.expiryDate.slice(0, 10) : '';
   quantityInput.setCustomValidity('');
@@ -74,7 +78,7 @@ function renderInventory() {
   cardButtons = [];
   cards.replaceChildren(...inventory.map(ingredientCard));
   count.textContent = inventory.length;
-  listMessage.textContent = inventory.length ? '' : 'Add your first ingredient.';
+  listMessage.textContent = inventory.length ? '' : categoryFilter?.value ? 'No ingredients match this category.' : 'Add your first ingredient.';
   listMessage.className = 'list-message';
   syncControls();
 }
@@ -339,7 +343,8 @@ async function loadIngredients() {
   listMessage.textContent = 'Loading your ingredients…';
   syncControls();
   try {
-    const response = await fetch('/api/ingredients', { cache: 'no-store' });
+    const query = categoryFilter?.value ? '?category=' + encodeURIComponent(categoryFilter.value) : '';
+    const response = await fetch('/api/ingredients' + query, { cache: 'no-store' });
     if (!response.ok) throw new Error('Unable to load your ingredients. Please try Refresh list.');
     const data = await response.json();
     if (!Array.isArray(data.ingredients)) throw new Error('The ingredient list could not be read. Please try Refresh list.');
@@ -376,6 +381,7 @@ form.addEventListener('submit', async (event) => {
     storage: form.elements.storage.value,
     expiryDate: form.elements.expiryDate.value || null
   };
+  if (form.elements.category) ingredient.category = form.elements.category.value;
   saving = true;
   kitchenUI?.busy(true);
   const edited = editing;
@@ -454,3 +460,4 @@ document.querySelector('#add-ingredient')?.addEventListener('click', () => {
   form.elements.name.focus();
 });
 loadIngredients();
+categoryFilter?.addEventListener('change', loadIngredients);

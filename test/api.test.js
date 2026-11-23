@@ -200,7 +200,7 @@ test('POST inserts only validated fields, trims text, and converts expiry to a U
     expiryDate: '2028-02-29', _id: 'untrusted-id', extra: 'ignored'
   }), {});
   assert.equal(response.statusCode, 201);
-  assert.deepEqual(written, { name: 'Test ingredient', quantity: 1.5, unit: 'grams', storage: 'pantry', expiryDate: new Date('2028-02-29T00:00:00.000Z') });
+  assert.deepEqual(written, { name: 'Test ingredient', quantity: 1.5, unit: 'grams', storage: 'pantry', expiryDate: new Date('2028-02-29T00:00:00.000Z'), category: 'other' });
   assert.deepEqual(JSON.parse(response.body), { ...written, expiryDate: '2028-02-29T00:00:00.000Z', _id: 'created-id' });
 });
 

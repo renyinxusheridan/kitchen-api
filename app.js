@@ -4,6 +4,7 @@ const { getDatabase, connectionErrorMessage } = require('./db');
 const { createShoppingRouter } = require('./shopping');
 
 const { validateIngredient } = require('./ingredient-validation');
+const { categories, ingredientResponse } = require('./categories');
 
 function createApp(getIngredients = async () => (await getDatabase()).collection('ingredients')) {
   const app = express();
@@ -13,7 +14,7 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
   app.get('/api/ingredients', async (req, res, next) => {
     try {
       const filter = {};
-      const { name, storage } = req.query;
+      const { name, storage, category } = req.query;
 
       // Accept text values only; do not pass user-supplied query objects to MongoDB.
       if (name !== undefined) {
@@ -32,10 +33,16 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
         filter.storage = storage;
       }
 
+      if (category !== undefined) {
+        if (typeof category !== 'string' || !categories.includes(category)) {
+          return res.status(400).json({ error: 'category must be protein, grains, fruits_vegetables, or other.' });
+        }
+        filter.category = category === 'other' ? { $in: ['other', null, ''] } : category;
+      }
       const ingredients = await getIngredients();
       const results = await ingredients.find(filter)
         .sort({ name: 1, _id: 1 }).limit(100).toArray();
-      res.json({ count: results.length, limit: 100, ingredients: results });
+      res.json({ count: results.length, limit: 100, ingredients: results.map(ingredientResponse) });
     } catch (error) {
       next(error);
     }
@@ -43,6 +50,7 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
 
   app.post('/api/ingredients', validateIngredient, async (req, res, next) => {
     try {
+      req.ingredient.category ??= 'other';
       const ingredients = await getIngredients();
       const result = await ingredients.insertOne(req.ingredient);
       res.status(201).json({ ...req.ingredient, _id: result.insertedId });
@@ -69,7 +77,7 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
         { returnDocument: 'after', upsert: false }
       );
       if (!updated) return res.status(404).json({ error: 'Ingredient not found. Refresh the list to see the current inventory.' });
-      res.json(updated);
+      res.json(ingredientResponse(updated));
     } catch (error) {
       next(error);
     }

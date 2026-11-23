@@ -5,6 +5,36 @@ const { createHarness, flush } = require('./frontend-harness.cjs');
 const reply = (body, ok = true) => ({ ok, async json() { return body; } });
 const sample = { _id: 'sample', name: '<img src=x onerror=alert(1)>', quantity: 2, unit: 'pieces', storage: 'fridge', expiryDate: '2026-12-31T00:00:00.000Z' };
 
+test('Category controls fetch the API, show an empty match state, prefill and save category, and restore it on reload', async () => {
+  let record = { ...sample, category: 'fruits_vegetables' };
+  const calls = [];
+  const fetch = async (url, options) => {
+    calls.push({ url, options });
+    if (options.method === 'PUT') {
+      record = { ...record, ...JSON.parse(options.body) };
+      return reply(record);
+    }
+    return reply({ ingredients: url.endsWith('category=protein') ? [] : [record] });
+  };
+  const h = createHarness(fetch, { categories: true });
+  await flush();
+  h.nodes['category-filter'].value = 'protein';
+  await h.nodes['category-filter'].listeners.change();
+  assert.equal(calls.at(-1).url, '/api/ingredients?category=protein');
+  assert.match(h.nodes['list-message'].textContent, /No ingredients match/);
+  h.nodes['category-filter'].value = '';
+  await h.nodes['category-filter'].listeners.change();
+  button(h.nodes['ingredient-cards'], 'Edit').listeners.click();
+  assert.equal(h.form.elements.category.value, 'fruits_vegetables');
+  h.form.elements.category.value = 'grains';
+  await h.submit();
+  assert.equal(record.category, 'grains');
+  const reloaded = createHarness(fetch, { categories: true });
+  await flush();
+  button(reloaded.nodes['ingredient-cards'], 'Edit').listeners.click();
+  assert.equal(reloaded.form.elements.category.value, 'grains');
+});
+
 function button(node, text) {
   if (node.textContent === text && node.listeners.click) return node;
   for (const child of node.children) {

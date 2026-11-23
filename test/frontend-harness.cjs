@@ -16,15 +16,21 @@ class Element {
   focus() { this.focused = true; }
 }
 
-function createHarness(fetch) {
+function createHarness(fetch, { categories = false } = {}) {
   const nodes = Object.fromEntries(['ingredient-form', 'save-button', 'form-message', 'refresh-button', 'ingredient-list', 'list-message', 'ingredient-cards', 'ingredient-count', 'cancel-edit-button', 'add-heading', 'operation-message'].map(id => [id, new Element()]));
   const form = nodes['ingredient-form'];
   form.elements = Object.fromEntries(['name', 'quantity', 'unit', 'storage', 'expiryDate'].map(name => [name, new Element()]));
   form.elements.storage.value = 'fridge';
+  if (categories) {
+    nodes['category-filter'] = new Element();
+    form.elements.category = new Element();
+    form.elements.category.value = 'other';
+  }
   form.reportValidity = () => !Object.values(form.elements).some(field => field.validationMessage);
   form.reset = () => {
     for (const field of Object.values(form.elements)) field.value = '';
     form.elements.storage.value = 'fridge';
+    if (categories) form.elements.category.value = 'other';
     form.resetCount = (form.resetCount || 0) + 1;
   };
   const document = { querySelector: selector => nodes[selector.slice(1)], createElement: () => new Element() };

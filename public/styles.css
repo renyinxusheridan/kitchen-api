@@ -110,3 +110,7 @@ input:focus,select:focus{border-color:var(--green);outline:3px solid #27684e20}
 .custom-unit-list{list-style:none;margin:8px 0 16px;padding:0}
 .custom-unit-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0}
 .custom-unit-list span{overflow-wrap:anywhere;min-width:0}
+
+.kitchen-panel{grid-template-rows:auto auto minmax(0,1fr)}
+.category-filter{padding:6px 10px;border-bottom:1px solid var(--border);background:#fff}
+.category-filter select{height:44px;font-size:16px}

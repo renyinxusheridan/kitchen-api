@@ -49,6 +49,7 @@
     for (const button of cardButtons) button.disabled = active;
     for (const key of purchaseFields) purchaseForm.elements[key].disabled = busy;
     purchaseSave.disabled = purchaseCancel.disabled = busy;
+    purchaseForm.elements.category.disabled = busy || purchaseForm.elements.destination.value !== 'new';
   }
 
   function discardOlderLoad() {
@@ -205,6 +206,7 @@
     purchase = item;
     discardOlderLoad();
     purchaseForm.reset();
+    purchaseForm.elements.category.value = item.currentInventory?.category || 'other';
     purchaseForm.elements.quantity.value = item.plannedQuantity;
     globalThis.kitchenUnits.set(purchaseForm.elements.unit, item.unit);
     purchaseForm.elements.storage.value = item.currentInventory?.storage || 'fridge';
@@ -228,6 +230,9 @@
 
   function updatePurchaseHint() {
     const existing = purchaseForm.elements.destination.value === 'existing';
+    const creating = purchaseForm.elements.destination.value === 'new';
+    document.querySelector('#purchase-category-field').hidden = !creating;
+    purchaseForm.elements.category.disabled = purchasing || !creating;
     purchaseHint.textContent = existing
       ? 'The purchased unit must exactly match “' + (purchase?.currentInventory?.unit || '') + '”. Storage and expiry below apply to the entire combined record.'
       : purchaseForm.elements.destination.value === 'new'
@@ -272,7 +277,7 @@
     try {
       const response = await fetch(endpoint + '/' + encodeURIComponent(selected._id) + '/purchase', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity, unit, destination: values.destination.value, storage: values.storage.value, expiryDate: values.expiryDate.value || null })
+        body: JSON.stringify({ quantity, unit, destination: values.destination.value, storage: values.storage.value, expiryDate: values.expiryDate.value || null, ...(values.destination.value === 'new' ? { category: values.category.value } : {}) })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to record the purchase.');
