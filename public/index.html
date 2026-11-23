@@ -16,13 +16,15 @@
   <a class="skip-link" href="#ingredient-list">Skip to My Kitchen</a>
   <a class="skip-link" href="#shopping-list">Skip to Shopping List</a>
   <header class="app-header">
-    <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v6a3 3 0 0 0 6 0V3M8 3v18M19 21V3c-4 2-4 8 0 9"/></svg></span>
-    <h1>Kitchen</h1>
-    <button id="settings-button" class="button secondary" type="button">Settings</button>
+    <div class="app-brand"><span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v6a3 3 0 0 0 6 0V3M8 3v18M19 21V3c-4 2-4 8 0 9"/></svg></span>
+    <h1>Kitchen</h1></div>
+    <div class="header-actions">
+      <button id="compare-button" class="button secondary" type="button" aria-pressed="false">Compare</button>
+      <button id="settings-button" class="button secondary" type="button">Settings</button>
+    </div>
     <nav class="view-switch" aria-label="Kitchen views">
       <button id="kitchen-tab" class="button" type="button" aria-controls="kitchen-panel" aria-pressed="true">My Kitchen</button>
       <button id="shopping-tab" class="button" type="button" aria-controls="shopping-panel" aria-pressed="false">Shopping List</button>
-      <button id="compare-button" class="button" type="button" aria-pressed="false">Compare</button>
     </nav>
   </header>
   <main class="workspace">
