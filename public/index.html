@@ -8,6 +8,7 @@
   <title>Kitchen · Inventory & shopping</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/ui.js" defer></script>
+  <script src="/categories-ui.js" defer></script>
   <script src="/units.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/shopping.js" defer></script>
@@ -36,7 +37,7 @@
           <button id="add-ingredient" class="button add-button" type="button" aria-label="Add ingredient"><span aria-hidden="true">+</span> Add</button>
         </div>
       </header>
-      <div class="category-filter"><select id="category-filter" aria-label="Filter My Kitchen by category"><option value="">All categories</option><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other">Other</option></select></div>
+      <div class="category-filter"><select id="category-filter" data-category-filter aria-label="Filter My Kitchen by category"><option value="">All categories</option><option value="null">Uncategorized</option></select></div>
       <div id="ingredient-list" class="list-scroll" tabindex="0" role="region" aria-label="My Kitchen items" aria-busy="true">
         <p id="list-message" class="list-message" role="status" aria-live="polite">Loading your ingredients…</p>
         <ul id="ingredient-cards" class="ingredient-grid" aria-label="Ingredients"></ul>
@@ -50,7 +51,7 @@
           <button id="add-shopping" class="button add-button" type="button" aria-label="Add shopping item"><span aria-hidden="true">+</span> Add</button>
         </div>
       </header>
-      <div class="category-filter"><select id="shopping-category-filter" aria-label="Filter Shopping List by category"><option value="">All categories</option><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other">Other</option></select></div>
+      <div class="category-filter"><select id="shopping-category-filter" data-category-filter aria-label="Filter Shopping List by category"><option value="">All categories</option><option value="null">Uncategorized</option></select></div>
       <div id="shopping-list" class="list-scroll" tabindex="0" role="region" aria-label="Shopping List items" aria-busy="true">
         <p id="shopping-list-message" class="list-message" role="status" aria-live="polite">Loading your shopping list…</p>
         <ul id="shopping-cards" class="ingredient-grid" aria-label="Shopping items"></ul>
@@ -89,7 +90,7 @@
             <label for="expiryDate">Expiry date <span class="optional">(optional)</span></label>
             <input id="expiryDate" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
           </div>
-          <div class="field"><label for="category">Category</label><select id="category" name="category" required><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other" selected>Other</option></select></div>
+          <div class="field"><label for="category">Category</label><select id="category" name="categoryId" data-category><option value="">Uncategorized</option></select></div>
           <button class="button primary" id="save-button" type="submit"><span aria-hidden="true">+</span> Add ingredient</button>
           <button class="button secondary cancel-edit" id="cancel-edit-button" type="button" hidden>Cancel</button>
           <p id="form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -114,7 +115,7 @@
           </div>
           <p id="shopping-quantity-hint" class="input-hint">Quantity must be greater than zero.</p>
 
-          <div class="field"><label for="shopping-category">Category</label><select id="shopping-category" name="category" required><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other" selected>Other</option></select></div>
+          <div class="field"><label for="shopping-category">Category</label><select id="shopping-category" name="categoryId" data-category><option value="">Uncategorized</option></select></div>
           <button class="button primary" id="shopping-save" type="submit"><span aria-hidden="true">+</span> Add shopping item</button>
           <button class="button secondary cancel-edit" id="shopping-cancel-edit" type="button" hidden>Cancel</button>
           <p id="shopping-form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -155,7 +156,7 @@
             <label for="purchase-expiry">Expiry date <span class="optional">(optional)</span></label>
             <input id="purchase-expiry" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
           </div>
-          <div class="field" id="purchase-category-field" hidden><label for="purchase-category">Category</label><select id="purchase-category" name="category" disabled required><option value="protein">Protein</option><option value="grains">Grains</option><option value="fruits_vegetables">Fruits &amp; Vegetables</option><option value="other" selected>Other</option></select></div>
+          <div class="field" id="purchase-category-field" hidden><label for="purchase-category">Category</label><select id="purchase-category" name="categoryId" data-category disabled><option value="">Uncategorized</option></select></div>
           <button class="button primary" id="purchase-save" type="submit">Save purchase to My Kitchen</button>
           <button class="button secondary cancel-edit" id="purchase-cancel" type="button">Cancel</button>
           <p id="purchase-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -176,11 +177,23 @@
   <dialog id="settings-dialog" class="sheet" aria-labelledby="settings-heading">
     <header class="sheet-header"><h2 id="settings-heading">Settings</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
     <div class="sheet-content">
-      <div class="field"><label for="default-unit">Default unit</label><select id="default-unit"></select></div>
+      <button id="manage-categories" class="button secondary" type="button">Manage categories</button>
+      <div class="field settings-unit"><label for="default-unit">Default unit</label><select id="default-unit"></select></div>
       <h3>Custom units</h3>
       <ul id="custom-unit-list" class="custom-unit-list"></ul>
       <form id="custom-unit-form"><div class="field"><label for="new-custom-unit">New custom unit</label><input id="new-custom-unit" type="text" maxlength="40" required></div><button class="button secondary" type="submit">Add unit</button></form>
       <p id="settings-message" class="form-message" role="status"></p>
+    </div>
+  </dialog>
+  <dialog id="categories-dialog" class="sheet" aria-labelledby="categories-heading">
+    <header class="sheet-header"><h2 id="categories-heading">Manage categories</h2><button class="button icon-button" data-close type="button" aria-label="Close dialog">×</button></header>
+    <div class="sheet-content">
+      <p class="form-hint">Categories are shared across this kitchen. Deleting a category makes its items Uncategorized.</p>
+      <button class="button secondary" id="categories-retry" type="button">Refresh categories</button>
+      <p id="categories-message" class="form-message" role="status" aria-live="polite"></p>
+      <ul id="categories-list" class="custom-unit-list"></ul>
+      <div id="category-delete-confirmation" hidden></div>
+      <form id="category-management-form"><div class="field"><label for="category-name">Category name</label><input id="category-name" maxlength="100" required autocomplete="off"></div><button class="button primary" id="category-management-save" type="submit">Add category</button><button class="button cancel-edit" id="category-management-cancel" type="button" hidden>Cancel rename</button></form>
     </div>
   </dialog>
 </body>

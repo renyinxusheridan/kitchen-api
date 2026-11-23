@@ -1,4 +1,4 @@
-const { categories } = require('./categories');
+const { categoryInput } = require('./categories');
 
 function validateIngredient(req, res, next) {
   const body = req.body;
@@ -19,9 +19,8 @@ function validateIngredient(req, res, next) {
   if (!['fridge', 'freezer', 'pantry'].includes(storage)) {
     return res.status(400).json({ error: 'Storage must be fridge, freezer, or pantry.' });
   }
-  if (Object.hasOwn(body, 'category') && !categories.includes(body.category)) {
-    return res.status(400).json({ error: 'Category must be protein, grains, fruits_vegetables, or other.' });
-  }
+  let category;
+  try { category = categoryInput(body); } catch (error) { return res.status(error.status).json({ error: error.message }); }
 
   let parsedExpiry = null;
   if (expiryDate !== undefined && expiryDate !== null && expiryDate !== '') {
@@ -37,7 +36,7 @@ function validateIngredient(req, res, next) {
 
   // Omitted category stays out of $set so legacy clients preserve saved values.
   req.ingredient = { name: name.trim(), quantity, unit: unit.trim(), storage, expiryDate: parsedExpiry };
-  if (Object.hasOwn(body, 'category')) req.ingredient.category = body.category;
+  Object.assign(req.ingredient, category);
   next();
 }
 

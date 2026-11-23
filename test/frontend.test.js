@@ -6,7 +6,7 @@ const reply = (body, ok = true) => ({ ok, async json() { return body; } });
 const sample = { _id: 'sample', name: '<img src=x onerror=alert(1)>', quantity: 2, unit: 'pieces', storage: 'fridge', expiryDate: '2026-12-31T00:00:00.000Z' };
 
 test('Category controls fetch the API, show an empty match state, prefill and save category, and restore it on reload', async () => {
-  let record = { ...sample, category: 'fruits_vegetables' };
+  let record = { ...sample, categoryId: '6b0500000000000000000003' };
   const calls = [];
   const fetch = async (url, options) => {
     calls.push({ url, options });
@@ -14,25 +14,25 @@ test('Category controls fetch the API, show an empty match state, prefill and sa
       record = { ...record, ...JSON.parse(options.body) };
       return reply(record);
     }
-    return reply({ ingredients: url.endsWith('category=protein') ? [] : [record] });
+    return reply({ ingredients: url.endsWith('categoryId=6b0500000000000000000001') ? [] : [record] });
   };
   const h = createHarness(fetch, { categories: true });
   await flush();
-  h.nodes['category-filter'].value = 'protein';
+  h.nodes['category-filter'].value = '6b0500000000000000000001';
   await h.nodes['category-filter'].listeners.change();
-  assert.equal(calls.at(-1).url, '/api/ingredients?category=protein');
+  assert.equal(calls.at(-1).url, '/api/ingredients?categoryId=6b0500000000000000000001');
   assert.match(h.nodes['list-message'].textContent, /No ingredients match/);
   h.nodes['category-filter'].value = '';
   await h.nodes['category-filter'].listeners.change();
   button(h.nodes['ingredient-cards'], 'Edit').listeners.click();
-  assert.equal(h.form.elements.category.value, 'fruits_vegetables');
-  h.form.elements.category.value = 'grains';
+  assert.equal(h.form.elements.categoryId.value, '6b0500000000000000000003');
+  h.form.elements.categoryId.value = '6b0500000000000000000002';
   await h.submit();
-  assert.equal(record.category, 'grains');
+  assert.equal(record.categoryId, '6b0500000000000000000002');
   const reloaded = createHarness(fetch, { categories: true });
   await flush();
   button(reloaded.nodes['ingredient-cards'], 'Edit').listeners.click();
-  assert.equal(reloaded.form.elements.category.value, 'grains');
+  assert.equal(reloaded.form.elements.categoryId.value, '6b0500000000000000000002');
 });
 
 function button(node, text) {

@@ -18,7 +18,7 @@
   const purchaseMessage = document.querySelector('#purchase-message');
   const purchaseHint = document.querySelector('#purchase-destination-hint');
   const purchaseFields = ['quantity', 'unit', 'destination', 'storage', 'expiryDate'];
-  const fields = ['name', 'plannedQuantity', 'unit', 'category'];
+  const fields = ['name', 'plannedQuantity', 'unit', 'categoryId'];
   const categoryFilter = document.querySelector('#shopping-category-filter');
   const endpoint = '/api/shopping-items';
   const ui = globalThis.kitchenUI;
@@ -51,7 +51,7 @@
     for (const button of cardButtons) button.disabled = active;
     for (const key of purchaseFields) purchaseForm.elements[key].disabled = busy;
     purchaseSave.disabled = purchaseCancel.disabled = busy;
-    purchaseForm.elements.category.disabled = busy || purchaseForm.elements.destination.value !== 'new';
+    purchaseForm.elements.categoryId.disabled = busy || purchaseForm.elements.destination.value !== 'new';
   }
 
   function discardOlderLoad() {
@@ -77,7 +77,8 @@
     discardOlderLoad();
     formHeading.textContent = 'Edit a shopping item';
     for (const key of fields) {
-      form.elements[key].value = key === 'category' ? item.category || 'other' : item[key];
+      if (key === 'categoryId') globalThis.categoryUI.set(form.elements[key], item.categoryId);
+      else form.elements[key].value = item[key];
       form.elements[key].setCustomValidity('');
     }
     globalThis.kitchenUnits.set(form.elements.unit, item.unit);
@@ -123,7 +124,7 @@
     const amount = element('p', 'amount', String(item.plannedQuantity));
     amount.append(element('span', '', item.unit));
     amount.setAttribute('aria-label', 'Planned: ' + item.plannedQuantity + ' ' + item.unit);
-    card.append(header, amount);
+    card.append(header, amount, element('p', 'category-name', item.categoryName || 'Uncategorized'));
     if (item.ingredientId) {
       const stock = item.currentInventory;
       card.append(element('p', 'stock-note', stock
@@ -208,7 +209,7 @@
     purchase = item;
     discardOlderLoad();
     purchaseForm.reset();
-    purchaseForm.elements.category.value = item.category || 'other';
+    globalThis.categoryUI.set(purchaseForm.elements.categoryId, item.categoryId);
     purchaseForm.elements.quantity.value = item.plannedQuantity;
     globalThis.kitchenUnits.set(purchaseForm.elements.unit, item.unit);
     purchaseForm.elements.storage.value = item.currentInventory?.storage || 'fridge';
@@ -234,7 +235,7 @@
     const existing = purchaseForm.elements.destination.value === 'existing';
     const creating = purchaseForm.elements.destination.value === 'new';
     document.querySelector('#purchase-category-field').hidden = !creating;
-    purchaseForm.elements.category.disabled = purchasing || !creating;
+    purchaseForm.elements.categoryId.disabled = purchasing || !creating;
     purchaseHint.textContent = existing
       ? 'The purchased unit must exactly match “' + (purchase?.currentInventory?.unit || '') + '”. Storage and expiry below apply to the entire combined record.'
       : purchaseForm.elements.destination.value === 'new'
@@ -262,6 +263,7 @@
   purchaseForm.addEventListener('submit', async event => {
     event.preventDefault();
     if (!purchase || purchasing || saving || deleting) return;
+    if (!globalThis.categoryUI.available()) { message(purchaseMessage, 'Refresh categories in Settings before saving.', 'error'); return; }
     const values = purchaseForm.elements;
     const quantity = Number(values.quantity.value);
     const unit = globalThis.kitchenUnits.value(values.unit).trim();
@@ -279,7 +281,7 @@
     try {
       const response = await fetch(endpoint + '/' + encodeURIComponent(selected._id) + '/purchase', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity, unit, destination: values.destination.value, storage: values.storage.value, expiryDate: values.expiryDate.value || null, ...(values.destination.value === 'new' ? { category: values.category.value } : {}) })
+        body: JSON.stringify({ quantity, unit, destination: values.destination.value, storage: values.storage.value, expiryDate: values.expiryDate.value || null, ...(values.destination.value === 'new' ? { categoryId: values.categoryId.value || null } : {}) })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to record the purchase.');
@@ -320,7 +322,7 @@
     listMessage.textContent = 'Loading your shopping list…';
     syncControls();
     try {
-      const query = categoryFilter.value ? '?category=' + encodeURIComponent(categoryFilter.value) : '';
+      const query = categoryFilter.value ? '?categoryId=' + encodeURIComponent(categoryFilter.value) : '';
       const response = await fetch(endpoint + query, { cache: 'no-store' });
       if (!response.ok) throw new Error('Unable to load shopping items.');
       const data = await response.json();
@@ -360,13 +362,14 @@
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (saving || deleting || pendingDelete || purchase || purchasing) return;
+    if (!globalThis.categoryUI.available()) { message(formMessage, 'Refresh categories in Settings before saving.', 'error'); return; }
     fields.forEach(validateField);
     if (!form.reportValidity()) return;
     const item = {
       name: form.elements.name.value.trim(),
       plannedQuantity: Number(form.elements.plannedQuantity.value),
       unit: globalThis.kitchenUnits.value(form.elements.unit).trim(),
-      category: form.elements.category.value
+      categoryId: form.elements.categoryId.value || null
     };
     saving = true;
     ui.busy(true);

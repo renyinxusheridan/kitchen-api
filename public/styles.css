@@ -114,3 +114,11 @@ input:focus,select:focus{border-color:var(--green);outline:3px solid #27684e20}
 .kitchen-panel,.shopping-panel{grid-template-rows:auto auto minmax(0,1fr)}
 .category-filter{padding:6px 10px;border-bottom:1px solid var(--border);background:#fff}
 .category-filter select{height:44px;font-size:16px}
+
+.category-name{grid-column:1/-1;color:var(--muted);font-size:.75rem;margin:2px 0 0;overflow-wrap:anywhere}
+.settings-unit{margin-top:20px}
+.category-manager-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+.category-manager-row span{flex:1;min-width:100px;overflow-wrap:anywhere}
+#category-delete-confirmation{border:1px solid #e9cccc;padding:12px;border-radius:10px;margin:12px 0}
+#category-delete-confirmation p{overflow-wrap:anywhere;font-size:.875rem}
+#category-management-form{margin-top:18px}

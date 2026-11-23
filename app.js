@@ -4,17 +4,20 @@ const { getDatabase, connectionErrorMessage } = require('./db');
 const { createShoppingRouter } = require('./shopping');
 
 const { validateIngredient } = require('./ingredient-validation');
-const { categories, ingredientResponse } = require('./categories');
+const { categoryQuery, populateCategories, writeWithCategory } = require('./categories');
+const { createCategoryRouter } = require('./category-router');
 
 function createApp(getIngredients = async () => (await getDatabase()).collection('ingredients')) {
   const app = express();
   app.use(express.json({ limit: '10kb' }));
+  app.use('/api/categories', createCategoryRouter());
   app.use('/api/shopping-items', createShoppingRouter());
 
   app.get('/api/ingredients', async (req, res, next) => {
     try {
       const filter = {};
-      const { name, storage, category } = req.query;
+      const { name, storage } = req.query;
+      const categoryId = categoryQuery(req.query);
 
       // Accept text values only; do not pass user-supplied query objects to MongoDB.
       if (name !== undefined) {
@@ -33,16 +36,10 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
         filter.storage = storage;
       }
 
-      if (category !== undefined) {
-        if (typeof category !== 'string' || !categories.includes(category)) {
-          return res.status(400).json({ error: 'category must be protein, grains, fruits_vegetables, or other.' });
-        }
-        filter.category = category === 'other' ? { $in: ['other', null, ''] } : category;
-      }
       const ingredients = await getIngredients();
-      const results = await ingredients.find(filter)
-        .sort({ name: 1, _id: 1 }).limit(100).toArray();
-      res.json({ count: results.length, limit: 100, ingredients: results.map(ingredientResponse) });
+      const resolved = await populateCategories(await ingredients.find(filter).sort({ name: 1, _id: 1 }).toArray());
+      const results = resolved.filter(item => categoryId === undefined || String(item.categoryId) === String(categoryId)).slice(0, 100);
+      res.json({ count: results.length, limit: 100, ingredients: results });
     } catch (error) {
       next(error);
     }
@@ -50,10 +47,10 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
 
   app.post('/api/ingredients', validateIngredient, async (req, res, next) => {
     try {
-      req.ingredient.category ??= 'other';
+      req.ingredient.categoryId ??= null;
       const ingredients = await getIngredients();
-      const result = await ingredients.insertOne(req.ingredient);
-      res.status(201).json({ ...req.ingredient, _id: result.insertedId });
+      const result = await writeWithCategory(req.ingredient, session => ingredients.insertOne(req.ingredient, { session }));
+      res.status(201).json((await populateCategories([{ ...req.ingredient, _id: result.insertedId }]))[0]);
     } catch (error) {
       next(error);
     }
@@ -71,13 +68,13 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
   app.put('/api/ingredients/:id', validateIngredient, async (req, res, next) => {
     try {
       const ingredients = await getIngredients();
-      const updated = await ingredients.findOneAndUpdate(
+      const updated = await writeWithCategory(req.ingredient, session => ingredients.findOneAndUpdate(
         { _id: req.ingredientId },
         { $set: req.ingredient },
-        { returnDocument: 'after', upsert: false }
-      );
+        { returnDocument: 'after', upsert: false, ...(session ? { session } : {}) }
+      ));
       if (!updated) return res.status(404).json({ error: 'Ingredient not found. Refresh the list to see the current inventory.' });
-      res.json(ingredientResponse(updated));
+      res.json((await populateCategories([updated]))[0]);
     } catch (error) {
       next(error);
     }
@@ -99,6 +96,7 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
   });
 
   app.use((error, req, res, next) => {
+    if ([400,404,409].includes(error.status)) return res.status(error.status).json({ error: error.message });
     const subject = /^\/api\/shopping-items(?:\/|$)/.test(req.path) ? 'Shopping item' : 'Ingredient';
     if (error.type === 'entity.parse.failed') {
       return res.status(400).json({ error: 'Invalid JSON. Check the ' + subject.toLowerCase() + ' data and try again.' });

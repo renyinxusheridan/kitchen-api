@@ -46,7 +46,7 @@ Compare shopping items and stock directly in the shared screen. Each panel scrol
 
 All three fields are required, and planned quantity must be a finite number greater than zero. The interface includes loading, empty, success, validation, and connection-error messages. Failed saves preserve entered values. Conflicting actions and repeated writes are disabled while a save or deletion is pending.
 
-Manual shopping entries remain separate, including existing items with matching names. Inventory-card additions check for unfinished matches and offer editing instead of creating duplicates. A partial unique index enforces one pending linked item per inventory record. Units are user-defined and never converted. No migration, seeding, or replacement of existing records is needed.
+Manual shopping entries remain separate, including existing items with matching names. Inventory-card additions check for unfinished matches and offer editing instead of creating duplicates. A partial unique index enforces one pending linked item per inventory record. Units are user-defined and never converted. Category migration adds references without replacing existing records (see Managed categories).
 
 ## API
 
@@ -71,9 +71,9 @@ POST and PUT accept the same JSON body with `Content-Type: application/json`:
 }
 ```
 
-Both routes require all fields except expiry. Names and units are trimmed; name accepts 1–100 characters and unit 1–40. Quantity must be a finite JSON number greater than zero. Storage must be `fridge`, `freezer`, or `pantry`. Expiry accepts a real `YYYY-MM-DD` date stored as a BSON Date at midnight UTC; omitted, null, or empty expiry is stored as null.
+Both routes require name, quantity, unit, and storage. Names and units are trimmed; name accepts 1–100 characters and unit 1–40. Quantity must be a finite JSON number greater than zero. Storage must be `fridge`, `freezer`, or `pantry`. Expiry accepts a real `YYYY-MM-DD` date stored as a BSON Date at midnight UTC; omitted, null, or empty expiry is stored as null.
 
-PUT uses `$set` for only these five fields and does not upsert, replace the document, or change its `_id`. Client-supplied extra fields are ignored. DELETE uses `deleteOne` with exactly the selected `_id`. IDs must be 24 hexadecimal characters. Invalid fields, IDs, malformed JSON, or oversized JSON return HTTP 400. A valid ID with no matching record returns HTTP 404. Unexpected database errors return action-specific HTTP 500 messages; credentials and driver details stay private.
+PUT uses `$set` for the validated ingredient fields and an explicitly supplied category reference and does not upsert, replace the document, or change its `_id`. Client-supplied extra fields are ignored. DELETE uses `deleteOne` with exactly the selected `_id`. IDs must be 24 hexadecimal characters. Invalid fields, IDs, malformed JSON, or oversized JSON return HTTP 400. A valid ID with no matching record returns HTTP 404. Unexpected database errors return action-specific HTTP 500 messages; credentials and driver details stay private.
 
 ### Shopping items
 
@@ -156,23 +156,46 @@ For live write verification, create a new clearly labelled disposable record, ed
 Refinement verification on **November 22, 2026** passed the build and all 27 existing tests. Isolated in-memory fixtures verified a shopping write using a custom default, trimmed custom names, duplicate rejection, legacy `grams` edit prefilling, tab persistence after reload, and Compare return behavior. Safari viewport reviews at 390×844, 768×1024, and 1280×800 found no horizontal overflow or visible button targets below 44px; inputs measured at least 16px. Comparison panels were stacked on phones and side by side on larger screens. Bottom clearance reserves space for hosting badges. API/database source files were unchanged and no real records were modified. Physical-device keyboard behavior and every unit/purchase combination were not manually exercised in this update.
 
 
-## Ingredient categories
+## Managed categories
 
-Ingredient category values are `protein` (Protein), `grains` (Grains), `fruits_vegetables` (Fruits & Vegetables), and `other` (Other). Existing records are never automatically classified or migrated. Missing/null/empty categories are returned as `other` without writing that fallback to existing documents.
+Categories are shared across the existing kitchen dataset, not private to a browser or user. MongoDB `categories` documents have stable ObjectIds and a `name`; ingredients and shopping items store `categoryId` as an ObjectId or null. Responses include `categoryId` and the current `categoryName`. Null displays as **Uncategorized**, a built-in, non-editable fallback rather than a categories document. Renaming only changes the category document; records retain their IDs and references.
 
-`GET /api/ingredients?category=fruits_vegetables` filters in MongoDB and can be combined with `name` and `storage`, for example `?category=fruits_vegetables&name=spinach&storage=fridge`. `category=other` includes explicit Other and missing/null/empty values. Invalid category parameters or submitted category values return HTTP 400. My Kitchen's All categories selector makes a new API request and shows a distinct empty-match state.
+**Settings → Manage categories** creates, renames, or deletes categories with loading, success, validation, and error feedback. Names are trimmed, require 1–100 characters, and have a unique lowercase `nameKey` to reject duplicates regardless of capitalization. The reserved Uncategorized name cannot be created. Category dropdowns and independent My Kitchen/Shopping List filters load from the API. A category change refreshes both lists and all selectors. Deleting an active filter resets it to All categories.
 
-Ingredient POST accepts category and defaults to `other` if omitted. PUT writes category only when explicitly provided, preserving the stored value when omitted. Add/Edit show a Category dropdown; Edit prefills the saved category. Purchase recording shows Category only for a new inventory record (default Other, prefilled from the link when available). Adding purchased quantities to an existing record never changes its category. Unit matching and transaction/idempotency rules are unchanged.
+| Method and path | Behavior |
+| --- | --- |
+| `GET /api/categories` | Lists categories, the built-in null fallback, and `shared: true` |
+| `POST /api/categories` | Creates `{ "name": "Snacks" }`; returns HTTP 201 |
+| `PUT /api/categories/:id` | Renames using `{ "name": "Treats" }` |
+| `GET /api/categories/:id` | Returns name plus `inventoryCount` and `shoppingCount` for deletion review |
+| `DELETE /api/categories/:id` | Requires reviewed `name`, `inventoryCount`, and `shoppingCount` in JSON; returns HTTP 204 |
 
-Category verification on **November 22, 2026** passed the build and **31 tests**. New isolated tests cover category/combined filters, invalid categories, read-only fallback, creation, editing, omission preservation, fresh reads, purchases into new/existing records, exact-unit rejection and repeated purchase prevention. The frontend adapter checks API filter URLs, empty matches, prefilling, saving and reload. Safari at a 390px phone viewport verified Fruits & Vegetables filtering and an Edit category change retained after browser reload, using a temporary in-memory server that cannot connect to MongoDB. No real database writes or migrations were performed. Atlas write persistence and a complete browser walkthrough of every category/purchase combination were not verified in this update.
+Deletion checks the reviewed name/counts again inside a MongoDB transaction. Stale confirmation returns HTTP 409 and requires reviewing usage again. The transaction clears references in both item collections and then removes the category; it never deletes inventory or shopping records or changes purchase status. Failure rolls everything back. Assigning a non-null category also writes the category revision inside its item-save transaction, serializing assignment against concurrent deletion so it cannot leave a dangling reference. Transactions require the existing Atlas replica set; there is no partial-write fallback.
 
+Ingredient and shopping POST/PUT accept `categoryId` as a 24-character ObjectId string or null. Invalid IDs return HTTP 400; references to unavailable categories return HTTP 409. Omitting the field on PUT preserves the saved reference. New manual entries default to null. `GET /api/ingredients?categoryId=:id` and `GET /api/shopping-items?categoryId=:id` filter on the server; use `categoryId=null` for Uncategorized. Ingredient category filtering combines with existing name/storage filters, and shopping filtering combines with ingredient lookup. Filters use the same resolved category IDs as responses.
 
-## Shopping item categories
+Add to list copies the ingredient's category reference for a new plan. Editing a shopping category never changes inventory. A purchase into a new inventory record initially uses the shopping category and allows an explicit override (including null). A purchase into an existing record preserves that inventory category. Exact-unit checks, duplicate prevention, and purchase idempotency remain in place.
 
-Shopping items use the same `protein`, `grains`, `fruits_vegetables`, and `other` category values and readable labels as inventory. Shopping POST/PUT accept and validate `category`. Manual creation defaults to Other; linked creation without an explicit category copies the ingredient category. PUT omitting category preserves the saved field. Editing a shopping category never edits linked inventory.
+### Migration and transition
 
-`GET /api/shopping-items?category=grains` filters on the server, including when combined with `ingredientId` duplicate lookup. For legacy records, the API resolves the saved shopping category first, then the current linked ingredient category, then Other. The same resolved category is used in responses and filtering; no migration or read-time writes occur. Current lists are resolved before category filtering to handle legacy links consistently. Purchase status and unrelated fields are preserved.
+Run once before deploying this version, and safely rerun after deployment if an older client wrote legacy records during the transition:
 
-Shopping Add/Edit include Category, and Shopping List has its own All categories selector. Each list keeps an independent API-backed filter in Compare mode and refreshes with that filter after writes. Add to list copies category for a new entry and preserves the selected existing shopping item's category when editing a duplicate. A purchase into a new inventory record prefills the shopping category and permits changing it. If a new-record purchase API request omits category, the shopping item's effective category is used. A purchase into an existing record preserves that inventory category.
+```sh
+npm run migrate:categories
+```
 
-Verification on **November 23, 2026** passed the build and all **34 tests**. Isolated API tests cover manual creation/editing, omitted-category preservation, invalid values, linked-category copying, duplicate prevention, legacy linked/unlinked/deleted-link/uncategorized fallback, filtering consistency, unchanged legacy documents/status, new-record purchase defaults/overrides, and preservation of existing inventory category. Safari phone-viewport checks used a temporary server with only in-memory collections: created Protein shopping item, reloaded and verified Edit prefilling, changed it to Grains, verified purchase prefill and completion, and used Add to list from its new inventory record. A read of the fixture records confirmed both shopping records stored Grains and one retained completed status. Compare showed independent All categories and Protein filters, retained after Add to list. The viewport check found no horizontal overflow or button targets below 44px. No real MongoDB writes were performed. Real Atlas write persistence, physical phones, and every category/purchase combination were not manually verified.
+The migration seeds Protein, Grains, and Fruits & Vegetables using deterministic stable IDs and maps `protein`, `grains`, and `fruits_vegetables` references. Existing `other` and missing values become null; missing shopping categories do not inherit a link. It only adds missing `categoryId` fields and preserves every other field, including legacy `category`, links and purchase status. Category seeding and item updates share a transaction. The `_migrations/category-references-v1` marker prevents a later rerun from resurrecting categories that users deleted. The unique name index prevents duplicate category names. Existing categoryId assignments are never overwritten.
+
+For older clients, legacy `category` writes/queries are accepted as aliases for the three migrated IDs or null for `other`; responses retain a deprecated legacy `category` field. The authoritative reference is categoryId, even when null. Legacy documents without a reference are resolved read-only until migration. New clients always use categoryId and API category names; an older client cannot represent newly created categories and should refresh to the current interface.
+
+### Category verification
+
+```sh
+npm test
+npm run build
+npm run verify:categories
+```
+
+`verify:categories` explicitly performs real write checks in a uniquely named disposable database (`kitchen_category_check_<timestamp>`), then drops only that database. It never uses `kitchen_app`. It requires the configured Atlas credential to permit disposable-database creation and transactions. Checks cover migration preservation/reruns, trimmed names and case-insensitive duplicates, create/rename/filter, linked shopping category copying/editing, purchases into new/existing inventory and retry idempotency, deletion with assigned records, rollback after an injected partial failure, and concurrent assignment/deletion. Fresh database reads check persisted results.
+
+Verification on **November 23, 2026** passed the build and all **33 tests**, plus the real MongoDB verification above. The shared-data migration retained all **5 ingredients and 2 shopping records**, adding only categoryId; a BSON comparison confirmed every original field and status was preserved. A second migration changed zero records. Browser checks used isolated in-memory fixtures for mobile category management, creation, duplicate rejection, renaming assigned categories, usage confirmation/deletion, both-list refresh, Add to list copying, new-record purchase category prefilling/saving, persistence after browser reload, and independent Compare filters (including deleted-filter reset). Phone (390×844), tablet (768×1024), and desktop (1280×800) viewport measurements found no horizontal overflow or visible button targets below 44px; inputs measured at least 16px. These checks do not constitute a physical-phone or software-keyboard test.

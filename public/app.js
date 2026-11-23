@@ -31,7 +31,7 @@ function syncControls() {
   saveButton.disabled = busy || pendingDelete !== null;
   cancelEditButton.disabled = busy;
   if (categoryFilter) categoryFilter.disabled = active;
-  if (form.elements.category) form.elements.category.disabled = busy;
+  if (form.elements.categoryId) form.elements.categoryId.disabled = busy;
   for (const key of ['name', 'quantity', 'unit', 'storage', 'expiryDate']) form.elements[key].disabled = busy;
   for (const button of cardButtons) button.disabled = active;
 }
@@ -61,7 +61,7 @@ function startEditing(ingredient) {
   list.setAttribute('aria-busy', 'false');
   formHeading.textContent = 'Edit an ingredient';
   for (const key of ['name', 'quantity', 'unit', 'storage']) form.elements[key].value = ingredient[key];
-  if (form.elements.category) form.elements.category.value = ingredient.category || 'other';
+  if (form.elements.categoryId) globalThis.categoryUI?.set(form.elements.categoryId, ingredient.categoryId);
   globalThis.kitchenUnits?.set(form.elements.unit, ingredient.unit);
   form.elements.expiryDate.value = ingredient.expiryDate ? ingredient.expiryDate.slice(0, 10) : '';
   quantityInput.setCustomValidity('');
@@ -110,6 +110,7 @@ function ingredientCard(ingredient) {
     expiry.append(element('span', '', 'Not set'));
   }
   card.append(header, amount);
+  if (kitchenUI) card.append(element('p', 'category-name', ingredient.categoryName || 'Uncategorized'));
   if (ingredient.expiryDate || !kitchenUI) card.append(expiry);
   const actions = element('div', 'card-actions');
   const editButton = element('button', 'button secondary', 'Edit');
@@ -285,6 +286,7 @@ function shoppingPlan() {
   plan.addEventListener('submit', async event => {
     event.preventDefault();
     if (action.saving) return;
+    if (globalThis.categoryUI && !globalThis.categoryUI.available()) { message(feedback, 'Refresh categories in Settings before saving.', 'error'); return; }
     quantity.setCustomValidity(Number.isFinite(Number(quantity.value)) && Number(quantity.value) > 0 ? '' : 'Enter a planned quantity greater than zero.');
     unit.setCustomValidity((globalThis.kitchenUnits?.value(unit) ?? unit.value).trim() ? '' : 'Enter a unit.');
     if (!plan.reportValidity()) return;
@@ -296,7 +298,8 @@ function shoppingPlan() {
     plan.setAttribute('aria-busy', 'true');
     message(feedback, 'Saving your shopping item…');
     const selected = action.selected;
-    const body = { name: selected?.name || action.ingredient.name, plannedQuantity: action.plannedQuantity, unit: action.unit, category: selected?.category || action.ingredient.category || 'other' };
+    const body = { name: selected?.name || action.ingredient.name, plannedQuantity: action.plannedQuantity, unit: action.unit,
+      categoryId: selected ? selected.categoryId : action.ingredient.categoryId || null };
     if (!selected?.ingredientId) body.ingredientId = action.ingredient._id;
     try {
       const response = await fetch('/api/shopping-items' + (selected ? '/' + encodeURIComponent(selected._id) : ''), {
@@ -343,7 +346,7 @@ async function loadIngredients() {
   listMessage.textContent = 'Loading your ingredients…';
   syncControls();
   try {
-    const query = categoryFilter?.value ? '?category=' + encodeURIComponent(categoryFilter.value) : '';
+    const query = categoryFilter?.value ? '?categoryId=' + encodeURIComponent(categoryFilter.value) : '';
     const response = await fetch('/api/ingredients' + query, { cache: 'no-store' });
     if (!response.ok) throw new Error('Unable to load your ingredients. Please try Refresh list.');
     const data = await response.json();
@@ -372,6 +375,7 @@ quantityInput.addEventListener('input', validateQuantity);
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (saving || deleting || pendingDelete || shoppingAction) return;
+  if (globalThis.categoryUI && !globalThis.categoryUI.available()) { message(formMessage, 'Refresh categories in Settings before saving.', 'error'); return; }
   validateQuantity();
   if (!form.reportValidity()) return;
   const ingredient = {
@@ -381,7 +385,7 @@ form.addEventListener('submit', async (event) => {
     storage: form.elements.storage.value,
     expiryDate: form.elements.expiryDate.value || null
   };
-  if (form.elements.category) ingredient.category = form.elements.category.value;
+  if (form.elements.categoryId) ingredient.categoryId = form.elements.categoryId.value || null;
   saving = true;
   kitchenUI?.busy(true);
   const edited = editing;

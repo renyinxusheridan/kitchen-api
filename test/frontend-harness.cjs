@@ -23,18 +23,18 @@ function createHarness(fetch, { categories = false } = {}) {
   form.elements.storage.value = 'fridge';
   if (categories) {
     nodes['category-filter'] = new Element();
-    form.elements.category = new Element();
-    form.elements.category.value = 'other';
+    form.elements.categoryId = new Element();
+    form.elements.categoryId.value = '';
   }
   form.reportValidity = () => !Object.values(form.elements).some(field => field.validationMessage);
   form.reset = () => {
     for (const field of Object.values(form.elements)) field.value = '';
     form.elements.storage.value = 'fridge';
-    if (categories) form.elements.category.value = 'other';
+    if (categories) form.elements.categoryId.value = '';
     form.resetCount = (form.resetCount || 0) + 1;
   };
   const document = { querySelector: selector => nodes[selector.slice(1)], createElement: () => new Element() };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8'), { document, fetch });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8'), { document, fetch, ...(categories ? { categoryUI: { set(select, value) { select.value = value || ''; }, available: () => true } } : {}) });
   return { nodes, form, submit: () => form.listeners.submit({ preventDefault() {} }) };
 }
 

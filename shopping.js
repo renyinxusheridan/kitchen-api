@@ -2,20 +2,11 @@ const express = require('express');
 const { ObjectId } = require('mongodb');
 const { getDatabase, withTransaction, connectionErrorMessage } = require('./db');
 const { validateIngredient } = require('./ingredient-validation');
-const { categories, ingredientResponse } = require('./categories');
+const { categoryInput, categoryQuery, categoryIdOf, populateCategories, writeWithCategory, touchCategory } = require('./categories');
 
 const validId = id => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id);
 const requestError = (status, message) => Object.assign(new Error(message), { status });
 
-function shoppingCategory(item, ingredient) {
-  if (categories.includes(item.category)) return item.category;
-  return categories.includes(ingredient?.category) ? ingredient.category : 'other';
-}
-
-function shoppingResponse(item, ingredient) {
-  return { ...item, category: shoppingCategory(item, ingredient),
-    ...(item.ingredientId ? { currentInventory: ingredientResponse(ingredient) || null } : {}) };
-}
 
 function matchingItems(ingredient) {
   const name = ingredient.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -26,12 +17,12 @@ function matchingItems(ingredient) {
 
 async function withInventory(items) {
   const ids = items.map(item => item.ingredientId).filter(id => id instanceof ObjectId);
-  if (!ids.length) return items.map(item => shoppingResponse(item, null));
+  if (!ids.length) return populateCategories(items);
   const db = await getDatabase();
   const inventory = await db.collection('ingredients').find({ _id: { $in: ids } })
-    .project({ name: 1, quantity: 1, unit: 1, storage: 1, expiryDate: 1, category: 1 }).toArray();
-  const byId = new Map(inventory.map(ingredient => [String(ingredient._id), ingredientResponse(ingredient)]));
-  return items.map(item => shoppingResponse(item, byId.get(String(item.ingredientId))));
+    .project({ name: 1, quantity: 1, unit: 1, storage: 1, expiryDate: 1, category: 1, categoryId: 1 }).toArray();
+  const byId = new Map((await populateCategories(inventory)).map(ingredient => [String(ingredient._id), ingredient]));
+  return populateCategories(items.map(item => ({ ...item, ...(item.ingredientId ? { currentInventory: byId.get(String(item.ingredientId)) || null } : {}) })));
 }
 
 async function prepareLink(collection, item, excludeId) {
@@ -69,10 +60,7 @@ function validateShoppingItem(req, res, next) {
 
   // Ordinary manual entries stay separate. Linking is an explicit action.
   req.shoppingItem = { name: name.trim(), plannedQuantity, unit: unit.trim() };
-  if (Object.hasOwn(body, 'category')) {
-    if (!categories.includes(body.category)) return res.status(400).json({ error: 'Category must be protein, grains, fruits_vegetables, or other.' });
-    req.shoppingItem.category = body.category;
-  }
+  try { Object.assign(req.shoppingItem, categoryInput(body)); } catch (error) { return res.status(error.status).json({ error: error.message }); }
   if (body.ingredientId !== undefined) {
     if (!validId(body.ingredientId)) return res.status(400).json({ error: 'Ingredient ID must be a valid MongoDB ObjectId.' });
     req.shoppingItem.ingredientId = new ObjectId(body.ingredientId);
@@ -87,9 +75,9 @@ function validatePurchase(req, res, next) {
   }
   const input = { body: { ...req.body, name: 'Purchase' } };
   validateIngredient(input, res, () => {
-    const { quantity, unit, storage, expiryDate, category } = input.ingredient;
+    const { quantity, unit, storage, expiryDate, categoryId } = input.ingredient;
     req.purchase = { quantity, unit, storage, expiryDate, destination: req.body.destination };
-    if (req.body.destination === 'new' && category !== undefined) req.purchase.category = category;
+    if (req.body.destination === 'new' && categoryId !== undefined) req.purchase.categoryId = categoryId;
     next();
   });
 }
@@ -103,10 +91,7 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
 
   router.get('/', async (req, res, next) => {
     try {
-      const category = req.query.category;
-      if (category !== undefined && (typeof category !== 'string' || !categories.includes(category))) {
-        return res.status(400).json({ error: 'category must be protein, grains, fruits_vegetables, or other.' });
-      }
+      const categoryId = categoryQuery(req.query);
       const collection = await getShoppingItems();
       let filter = {};
       if (req.query.ingredientId !== undefined) {
@@ -116,10 +101,10 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
         if (!ingredient) return res.status(404).json({ error: 'Ingredient not found. Refresh My Kitchen.' });
         filter = matchingItems(ingredient);
       }
-      // Resolve legacy links before filtering so the API uses the same category
+      // Resolve legacy references before filtering so the API uses the same category
       // for both responses and matches, without rewriting old documents.
       const resolved = await withInventory(await collection.find(filter).sort({ name: 1, _id: 1 }).toArray());
-      const shoppingItems = category === undefined ? resolved : resolved.filter(item => item.category === category);
+      const shoppingItems = categoryId === undefined ? resolved : resolved.filter(item => String(item.categoryId) === String(categoryId));
       res.json({ count: shoppingItems.length, shoppingItems });
     } catch (error) {
       next(error);
@@ -131,8 +116,11 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
       const collection = await getShoppingItems();
       const existing = await prepareLink(collection, req.shoppingItem);
       if (existing) return res.status(409).json({ error: 'This ingredient is already on your shopping list. Edit that item instead.', existingItem: (await withInventory([existing]))[0] });
-      req.shoppingItem.category = (await withInventory([req.shoppingItem]))[0].category;
-      const result = await collection.insertOne(req.shoppingItem);
+      if (!Object.hasOwn(req.shoppingItem, 'categoryId')) {
+        const linked = req.shoppingItem.ingredientId ? await (await getDatabase()).collection('ingredients').findOne({ _id: req.shoppingItem.ingredientId }) : null;
+        req.shoppingItem.categoryId = linked ? categoryIdOf(linked) : null;
+      }
+      const result = await writeWithCategory(req.shoppingItem, session => collection.insertOne(req.shoppingItem, { session }));
       res.status(201).json((await withInventory([{ ...req.shoppingItem, _id: result.insertedId }]))[0]);
     } catch (error) {
       next(error);
@@ -157,12 +145,12 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
       }
       const existing = await prepareLink(collection, req.shoppingItem, req.shoppingItemId);
       if (existing) return res.status(409).json({ error: 'This ingredient is already on your shopping list. Edit that item instead.', existingItem: (await withInventory([existing]))[0] });
-      const updated = await collection.findOneAndUpdate(
+      const updated = await writeWithCategory(req.shoppingItem, session => collection.findOneAndUpdate(
         { _id: req.shoppingItemId, ...(req.shoppingItem.ingredientId
           ? { status: { $ne: 'completed' }, ingredientId: current.ingredientId || { $exists: false } } : {}) },
         { $set: req.shoppingItem },
-        { returnDocument: 'after', upsert: false }
-      );
+        { returnDocument: 'after', upsert: false, ...(session ? { session } : {}) }
+      ));
       if (!updated) return res.status(404).json({ error: 'Shopping item not found. Refresh the list to see the current items.' });
       res.json((await withInventory([updated]))[0]);
     } catch (error) {
@@ -182,7 +170,7 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
         if (item.status === 'completed') {
           const ingredient = item.purchase?.ingredientId
             ? await inventory.findOne({ _id: item.purchase.ingredientId }, { session }) : null;
-          return { shoppingItem: shoppingResponse(item, ingredient), ingredient: ingredientResponse(ingredient), alreadyCompleted: true };
+          return { shoppingItem: { ...item, currentInventory: ingredient }, ingredient, alreadyCompleted: true };
         }
 
         const { quantity, unit, storage, expiryDate, destination } = req.purchase;
@@ -202,23 +190,27 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
           );
           if (!ingredient) throw requestError(409, 'The linked inventory record changed. Refresh the list and try again.');
         } else {
-          const linked = item.ingredientId ? await inventory.findOne({ _id: item.ingredientId }, { session }) : null;
+          const categoryId = Object.hasOwn(req.purchase, 'categoryId') ? req.purchase.categoryId : categoryIdOf(item);
+          await touchCategory(db, session, categoryId);
           ingredient = { _id: new ObjectId(), name: item.name, quantity, unit, storage, expiryDate,
-            category: req.purchase.category ?? shoppingCategory(item, linked) };
+            categoryId };
           await inventory.insertOne(ingredient, { session });
         }
 
         // This write only happens after inventory succeeds; both commit together.
         const completedAt = new Date();
+        const { categoryId: purchasedCategoryId, ...purchaseFields } = req.purchase;
         const shoppingItem = await shopping.findOneAndUpdate(
           { _id: item._id, status: { $ne: 'completed' } },
           { $set: { status: 'completed', completedAt, ingredientId: ingredient._id,
-            purchase: { ...req.purchase, ingredientId: ingredient._id, sourceIngredientId: item.ingredientId || null } } },
+            purchase: { ...purchaseFields, ingredientId: ingredient._id, sourceIngredientId: item.ingredientId || null } } },
           { session, returnDocument: 'after', upsert: false }
         );
         if (!shoppingItem) throw requestError(409, 'The shopping item changed. Refresh the list before trying again.');
-        return { shoppingItem: shoppingResponse(shoppingItem, ingredient), ingredient: ingredientResponse(ingredient), alreadyCompleted: false };
+        return { shoppingItem: { ...shoppingItem, currentInventory: ingredient }, ingredient, alreadyCompleted: false };
       });
+      result.shoppingItem = (await withInventory([result.shoppingItem]))[0];
+      if (result.ingredient) result.ingredient = (await populateCategories([result.ingredient]))[0];
       res.json(result);
     } catch (error) {
       next(error);
