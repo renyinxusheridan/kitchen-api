@@ -64,6 +64,6 @@
     custom.push(unit); persist(); settings(); input.value = ''; input.focus();
   });
   document.querySelector('#new-custom-unit').addEventListener('input', event => event.target.setCustomValidity(''));
-  document.querySelector('#settings-button').addEventListener('click', () => { settings(); globalThis.kitchenUI.open('settings-dialog', { onCancel: () => globalThis.kitchenUI.dismiss('settings-dialog'), fallback: '#settings-button' }); });
+  document.querySelector('#settings-button').addEventListener('click', () => { settings(); globalThis.kitchenUI.open('settings-dialog', { onCancel: () => globalThis.kitchenUI.dismiss('settings-dialog'), busy: () => globalThis.categoryUI.busy(), fallback: '#settings-button' }); });
   globalThis.kitchenUnits = { bind, set, value, preferred, remember };
 })();

@@ -177,23 +177,22 @@
   <dialog id="settings-dialog" class="sheet" aria-labelledby="settings-heading">
     <header class="sheet-header"><h2 id="settings-heading">Settings</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
     <div class="sheet-content">
-      <button id="manage-categories" class="button secondary" type="button">Manage categories</button>
-      <div class="field settings-unit"><label for="default-unit">Default unit</label><select id="default-unit"></select></div>
-      <h3>Custom units</h3>
+      <section class="settings-section" id="units-settings" aria-labelledby="units-heading">
+      <h3 id="units-heading">Units</h3>
+      <div class="field"><label for="default-unit">Default unit</label><select id="default-unit"></select></div>
+      <h4>Custom units</h4>
       <ul id="custom-unit-list" class="custom-unit-list"></ul>
       <form id="custom-unit-form"><div class="field"><label for="new-custom-unit">New custom unit</label><input id="new-custom-unit" type="text" maxlength="40" required></div><button class="button secondary" type="submit">Add unit</button></form>
       <p id="settings-message" class="form-message" role="status"></p>
-    </div>
-  </dialog>
-  <dialog id="categories-dialog" class="sheet" aria-labelledby="categories-heading">
-    <header class="sheet-header"><h2 id="categories-heading">Manage categories</h2><button class="button icon-button" data-close type="button" aria-label="Close dialog">×</button></header>
-    <div class="sheet-content">
+      </section>
+      <section class="settings-section" id="categories-settings" aria-labelledby="categories-heading">
+      <h3 id="categories-heading">Categories</h3>
       <p class="form-hint">Categories are shared across this kitchen. Deleting a category makes its items Uncategorized.</p>
       <button class="button secondary" id="categories-retry" type="button">Refresh categories</button>
       <p id="categories-message" class="form-message" role="status" aria-live="polite"></p>
       <ul id="categories-list" class="custom-unit-list"></ul>
-      <div id="category-delete-confirmation" hidden></div>
-      <form id="category-management-form"><div class="field"><label for="category-name">Category name</label><input id="category-name" maxlength="100" required autocomplete="off"></div><button class="button primary" id="category-management-save" type="submit">Add category</button><button class="button cancel-edit" id="category-management-cancel" type="button" hidden>Cancel rename</button></form>
+      <form id="category-management-form"><div class="field"><label for="category-name">New category name</label><input id="category-name" maxlength="100" required autocomplete="off" aria-describedby="category-create-message"></div><button class="button primary" id="category-management-save" type="submit">Add category</button><p id="category-create-message" class="form-message" role="status" aria-live="polite"></p></form>
+      </section>
     </div>
   </dialog>
 </body>

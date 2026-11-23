@@ -116,9 +116,16 @@ input:focus,select:focus{border-color:var(--green);outline:3px solid #27684e20}
 .category-filter select{height:44px;font-size:16px}
 
 .category-name{grid-column:1/-1;color:var(--muted);font-size:.75rem;margin:2px 0 0;overflow-wrap:anywhere}
-.settings-unit{margin-top:20px}
-.category-manager-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
-.category-manager-row span{flex:1;min-width:100px;overflow-wrap:anywhere}
-#category-delete-confirmation{border:1px solid #e9cccc;padding:12px;border-radius:10px;margin:12px 0}
-#category-delete-confirmation p{overflow-wrap:anywhere;font-size:.875rem}
+.settings-section{min-width:0}
+.settings-section+.settings-section{border-top:1px solid var(--border);margin-top:28px;padding-top:24px}
+.settings-section>h3{font-size:1rem;font-weight:700;margin:0 0 16px}
+.settings-section h4{font-size:.875rem;font-weight:600;margin:0 0 6px}
+#settings-dialog .sheet-content{overflow-x:hidden}
+#categories-list .category-manager-row{display:block;margin:12px 0;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.category-row-header{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}
+.category-row-header span{flex:1;min-width:100px;overflow-wrap:anywhere}
+.category-inline-form{margin-top:12px;min-width:0}
+.category-inline-actions{display:flex;flex-wrap:wrap;gap:8px}
+.category-delete-confirmation{border:1px solid #e9cccc;padding:12px;border-radius:10px;margin:12px 0 0}
+.category-delete-confirmation p{overflow-wrap:anywhere;font-size:.875rem;margin:0 0 12px}
 #category-management-form{margin-top:18px}
