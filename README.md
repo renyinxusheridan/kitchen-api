@@ -11,6 +11,14 @@ npm start
 
 Open **http://localhost:3000/**. Keep the existing `.env` private. For a new checkout, copy `.env.example` to `.env` and privately configure `MONGODB_URI`, `DB_NAME=kitchen_app`, and `PORT=3000`. Node 24 is selected for deployment; Node 24 and 26 are supported locally.
 
+## Vercel deployment
+
+The existing Vercel project deploys `main` using the Express preset. `app.js` exports the Express HTTP handler while retaining `createApp` for local development and API tests. Vercel serves `public/` assets from its CDN; `vercel.json` routes `/` to `public/index.html`. API requests retain their existing `/api/ingredients`, `/api/shopping-items`, and `/api/categories` paths.
+
+Configure `MONGODB_URI` and `DB_NAME` in the Vercel project environment, then redeploy after environment changes. The database connection remains lazy and cached across warm requests. Deployment does not run migrations or modify existing records. Never commit `.env`, credentials, or local `.vercel/` files.
+
+For a Vercel-only Git push, include `[skip netlify]` in the commit message to prevent the connected Netlify site from deploying that push.
+
 ## Interface
 
 My Kitchen and Shopping List have a top-level switch at `/`, showing one full-width list by default. The selected tab is remembered in this browser. **Compare** reveals both panels: stacked with independent scrolling and visible headers on phones, side by side from 700px. **Exit Compare** returns to the prior tab. The old `/shopping.html` URL forwards to this screen.

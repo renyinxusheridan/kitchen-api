@@ -113,4 +113,7 @@ function createApp(getIngredients = async () => (await getDatabase()).collection
   return app;
 }
 
-module.exports = { createApp };
+// Vercel imports this entry point as the HTTP handler. Keep the factory available
+// for the local server, the Netlify adapter, and isolated API tests.
+module.exports = createApp();
+module.exports.createApp = createApp;
