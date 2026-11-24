@@ -68,11 +68,22 @@
   let selected = 'kitchen';
   try { if (localStorage.getItem('kitchen.selectedView') === 'shopping') selected = 'shopping'; } catch {}
   let comparing = false;
+  let compareCategory = '';
+  const separateCategories = { kitchen: '', shopping: '' };
+  const filterFor = name => document.querySelector(name === 'kitchen' ? '#category-filter' : '#shopping-category-filter');
+  function leaveCompare() {
+    if (!comparing) return;
+    comparing = false;
+    for (const name of ['kitchen','shopping']) filterFor(name).value = separateCategories[name];
+  }
+  function refreshLists() { return globalThis.kitchenUI?.refreshAll(); }
+
   const tabs = ['kitchen', 'shopping'].map(name => document.querySelector('#' + name + '-tab'));
   const compare = document.querySelector('#compare-button');
   function showView() {
     closeMenus();
     document.querySelector('.workspace').classList.toggle('comparing', comparing);
+    document.querySelector('.app-header').classList.toggle('in-compare', comparing);
     for (const name of ['kitchen', 'shopping']) {
       document.querySelector('#' + name + '-panel').hidden = !comparing && selected !== name;
       document.querySelector('#' + name + '-tab').setAttribute('aria-pressed', String(!comparing && selected === name));
@@ -82,18 +93,46 @@
   }
   tabs.forEach((tab, index) => {
     tab.addEventListener('click', () => {
-      selected = index ? 'shopping' : 'kitchen'; comparing = false;
+      leaveCompare(); selected = index ? 'shopping' : 'kitchen';
       try { localStorage.setItem('kitchen.selectedView', selected); } catch {}
-      showView();
+      showView(); refreshLists();
     });
   });
-  compare.addEventListener('click', () => { comparing = !comparing; showView(); });
+  compare.addEventListener('click', () => {
+    if (comparing) leaveCompare();
+    else {
+      for (const name of ['kitchen','shopping']) separateCategories[name] = filterFor(name).value;
+      compareCategory = filterFor(selected).value;
+      comparing = true;
+      for (const name of ['kitchen','shopping']) filterFor(name).value = compareCategory;
+    }
+    showView(); refreshLists();
+  });
   document.querySelectorAll('.skip-link').forEach(link => link.addEventListener('click', () => {
-    selected = link.hash === '#shopping-list' ? 'shopping' : 'kitchen'; comparing = false; showView();
+    leaveCompare(); selected = link.hash === '#shopping-list' ? 'shopping' : 'kitchen'; showView(); refreshLists();
   }));
   showView();
 
   globalThis.kitchenUI = {
+    filterChanged(name) {
+      if (comparing) {
+        compareCategory = filterFor(name).value;
+        for (const view of ['kitchen','shopping']) filterFor(view).value = compareCategory;
+        return refreshLists();
+      }
+      separateCategories[name] = filterFor(name).value;
+      return refreshers.get(name === 'kitchen' ? 'inventory' : 'shopping')?.();
+    },
+    reconcileFilters() {
+      if (comparing) {
+        compareCategory = filterFor('kitchen').value;
+        filterFor('shopping').value = compareCategory;
+      }
+      for (const name of ['kitchen','shopping']) {
+        const options = [...filterFor(name).options];
+        if (!options.some(option => option.value === separateCategories[name])) separateCategories[name] = '';
+      }
+    },
     register(name, refresh) { refreshers.set(name, refresh); },
     async refreshAll() {
       await Promise.allSettled([...refreshers.values()].map(refresh => refresh()));

@@ -1,4 +1,5 @@
 const { categoryInput } = require('./categories');
+const { storageInput, validId } = require('./storage');
 
 function validateIngredient(req, res, next) {
   const body = req.body;
@@ -6,7 +7,7 @@ function validateIngredient(req, res, next) {
     return res.status(400).json({ error: 'Send an ingredient as a JSON object with Content-Type: application/json.' });
   }
 
-  const { name, quantity, unit, storage, expiryDate } = body;
+  const { name, quantity, unit, expiryDate } = body;
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) {
     return res.status(400).json({ error: 'Name is required and must contain 1–100 characters.' });
   }
@@ -16,11 +17,11 @@ function validateIngredient(req, res, next) {
   if (typeof unit !== 'string' || !unit.trim() || unit.trim().length > 40) {
     return res.status(400).json({ error: 'Unit is required and must contain 1–40 characters.' });
   }
-  if (!['fridge', 'freezer', 'pantry'].includes(storage)) {
-    return res.status(400).json({ error: 'Storage must be fridge, freezer, or pantry.' });
-  }
   let category;
-  try { category = categoryInput(body); } catch (error) { return res.status(error.status).json({ error: error.message }); }
+  if (Object.hasOwn(body,'packageSize') && body.packageSize !== null && (typeof body.packageSize !== 'string' || body.packageSize.trim().length > 60)) {
+    return res.status(400).json({error:'Package size must be text with at most 60 characters, or left empty.'});
+  }
+  try { category = { ...categoryInput(body), ...storageInput(body) }; } catch (error) { return res.status(error.status).json({ error: error.message }); }
 
   let parsedExpiry = null;
   if (expiryDate !== undefined && expiryDate !== null && expiryDate !== '') {
@@ -35,8 +36,13 @@ function validateIngredient(req, res, next) {
   }
 
   // Omitted category stays out of $set so legacy clients preserve saved values.
-  req.ingredient = { name: name.trim(), quantity, unit: unit.trim(), storage, expiryDate: parsedExpiry };
+  req.ingredient = { name, quantity, unit: unit.trim(), expiryDate: parsedExpiry };
   Object.assign(req.ingredient, category);
+  if (Object.hasOwn(body,'packageSize')) req.ingredient.packageSize = body.packageSize?.trim() || null;
+  if (body.batchId !== undefined) {
+    if (!validId(body.batchId)) return res.status(400).json({ error: 'Choose a valid stock batch.' });
+    req.batchId = body.batchId.toLowerCase();
+  }
   next();
 }
 

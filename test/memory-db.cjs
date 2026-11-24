@@ -12,8 +12,8 @@ function matches(row,filter={}) {
  });
 }
 function memoryDatabase() {
- let state={ingredients:[],shopping_items:[],categories:[],_migrations:[]};let failOn;
- function unique(name,record) {if(name==='categories' && state[name].some(row=>!eq(row._id,record._id)&&row.nameKey===record.nameKey))throw Object.assign(new Error('duplicate'),{code:11000});}
+ let state={ingredients:[],shopping_items:[],categories:[],_migrations:[]};let failOn; let tail=Promise.resolve(); let writeFailure;
+ function unique(name,record) {if(['categories','storage_locations'].includes(name) && state[name].some(row=>!eq(row._id,record._id)&&row.nameKey===record.nameKey))throw Object.assign(new Error('duplicate'),{code:11000});}
  const db={collection(name){state[name] ||= [];return {
   async createIndex(){},
   find(filter={}){let data=state[name].filter(row=>matches(row,filter));return {sort(){return this;},limit(n){data=data.slice(0,n);return this;},project(){return this;},async toArray(){return clone(data);}};},
@@ -21,6 +21,7 @@ function memoryDatabase() {
   async countDocuments(filter){return state[name].filter(row=>matches(row,filter)).length;},
   async insertOne(row){row={_id:new ObjectId(),...clone(row)};unique(name,row);state[name].push(row);return {insertedId:row._id};},
   async updateOne(filter,update,options={}){
+   if(writeFailure && writeFailure.name===name && (!writeFailure.id || eq(writeFailure.id,filter._id))){writeFailure=null;throw Error('Injected write failure');}
    let row=state[name].find(row=>matches(row,filter));let inserted=false;
    if(!row && options.upsert){row={_id:filter._id||new ObjectId()};state[name].push(row);inserted=true;}
    if(!row)return {matchedCount:0,modifiedCount:0};
@@ -31,6 +32,6 @@ function memoryDatabase() {
   async updateMany(filter,update){if(failOn===name){failOn=null;throw Error('Injected failure');}let n=0;for(const row of state[name].filter(row=>matches(row,filter))){await this.updateOne({_id:row._id},update);n++;}return {modifiedCount:n};},
   async deleteOne(filter){const i=state[name].findIndex(row=>matches(row,filter));if(i<0)return {deletedCount:0};state[name].splice(i,1);return {deletedCount:1};}
  };}};
- return {db,reset(value){state=clone(value);for(const name of ['ingredients','shopping_items','categories','_migrations'])state[name] ||= [];},snapshot:()=>clone(state),fail(name){failOn=name;},async transact(work){const before=clone(state);try{return await work(db,{});}catch(error){state=before;throw error;}}};
+ return {db,reset(value){state=clone(value);for(const name of ['ingredients','shopping_items','categories','_migrations'])state[name] ||= [];},snapshot:()=>clone(state),fail(name){failOn=name;},failWrite(name,id){writeFailure={name,id};},transact(work){const task=tail.then(async()=>{const before=clone(state);try{return await work(db,{});}catch(error){state=before;throw error;}});tail=task.catch(()=>{});return task;}};
 }
 module.exports={memoryDatabase};

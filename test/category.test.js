@@ -3,12 +3,12 @@ const {test}=require('node:test');
 const {ObjectId}=require('mongodb');
 const {memoryDatabase}=require('./memory-db.cjs');
 const memory=memoryDatabase();const db=require('../db');db.getDatabase=async()=>memory.db;db.withTransaction=work=>memory.transact(work);
-const {migrateCategories}=require('../scripts/migrate-categories');const {legacy}=require('../categories');
+const {migrateWorkflow}=require('../scripts/migrate-workflow');const {migrateCategories}=require('../scripts/migrate-categories');const {legacy}=require('../categories');
 const handle=require('serverless-http')(require('../app').createApp());
 async function request(path,method='GET',body){const url=new URL(path,'http://localhost');const res=await handle({httpMethod:method,path:url.pathname,queryStringParameters:Object.fromEntries(url.searchParams),headers:{'content-type':'application/json'},body:body===undefined?null:JSON.stringify(body),isBase64Encoded:false},{});return {status:res.statusCode,body:res.body?JSON.parse(res.body):null};}
 const ingredient={name:'Fixture eggs',quantity:2,unit:'pieces',storage:'fridge',expiryDate:null};
 const plan={name:'Fixture shopping',plannedQuantity:3,unit:'pieces'};
-async function setup(){memory.reset({ingredients:[{...ingredient,_id:new ObjectId(),category:'protein',extra:'preserve'},{...ingredient,_id:new ObjectId(),name:'Fixture rice',category:'grains'},{...ingredient,_id:new ObjectId(),name:'Uncategorized'}],shopping_items:[{...plan,_id:new ObjectId(),category:'protein',status:'completed',extra:'preserve'},{...plan,_id:new ObjectId(),category:'other'}]});await migrateCategories(memory.db,memory.transact);}
+async function setup(){memory.reset({ingredients:[{...ingredient,_id:new ObjectId(),category:'protein',extra:'preserve'},{...ingredient,_id:new ObjectId(),name:'Fixture rice',category:'grains'},{...ingredient,_id:new ObjectId(),name:'Uncategorized'}],shopping_items:[{...plan,_id:new ObjectId(),category:'protein',status:'completed',extra:'preserve'},{...plan,_id:new ObjectId(),category:'other'}]});await migrateCategories(memory.db,memory.transact);await migrateWorkflow(memory.db,memory.transact);}
 
 test('Migration maps only categories, preserves records/status, reruns safely and does not resurrect deleted categories',async()=>{
  await setup();const before=memory.snapshot();assert.equal(before.categories.length,3);assert.equal(String(before.ingredients[0].categoryId),String(legacy.protein._id));assert.equal(before.ingredients[2].categoryId,null);assert.equal(before.shopping_items[0].status,'completed');assert.equal(before.shopping_items[1].categoryId,null);

@@ -1,15 +1,27 @@
-# Kitchen inventory and shopping list
+# Kitchen inventory and grocery workflow
 
-A plain HTML, CSS, and JavaScript interface backed by Express and MongoDB. Ingredients stay in `kitchen_app.ingredients`; shopping items use the separate `kitchen_app.shopping_items` collection. The local server and Netlify Function share the same API and cached database connection.
+Plain HTML/CSS/JavaScript, Express and MongoDB, using the existing shared kitchen dataset. Categories, storage locations and confirmed ingredient aliases are shared. Unit preferences, the last-used storage and the selected navigation tab are browser-specific localStorage settings. There is no new account/ownership model.
 
-## Run locally
+Production uses the existing Vercel project at **https://kitchen-api-ten.vercel.app/**. Keep Vercel-only release commits marked `[skip netlify]` so the connected Netlify site does not deploy them. Database migrations are explicit operations, separate from deployment.
+
+## Local development and verification
 
 ```sh
 npm ci
-npm start
+npm run preview:workflow
 ```
 
-Open **http://localhost:3000/**. Keep the existing `.env` private. For a new checkout, copy `.env.example` to `.env` and privately configure `MONGODB_URI`, `DB_NAME=kitchen_app`, and `PORT=3000`. Node 24 is selected for deployment; Node 24 and 26 are supported locally.
+Open **http://localhost:3230/__review** for isolated phone/tablet/desktop viewports, or **http://localhost:3230/** for the app. This fixture server never reads `.env` or connects to Atlas; all writes are in memory and reset when the process restarts. Fixtures include yesterday/today/+1/+3/+4/no-expiry stock, a stale Egg link, different units and ambiguous Tomatoes. The preview's `/__snapshot` and failure-injection endpoints exist only in this local fixture process, not in the deployed API.
+
+```sh
+npm run build
+npm test
+npm run verify:workflow
+```
+
+The build checks JavaScript syntax. Unit/API tests use isolated fake collections and the existing frontend DOM adapter. `verify:workflow` uses the privately configured Atlas connection **only with a uniquely named disposable database** (`kitchen_workflow_check_<timestamp>`), performs real transaction/write checks, then drops only that database. It never uses `kitchen_app`. The older `verify:categories` script likewise uses its own disposable database; `verify:api` is read-only.
+
+For a real development database, privately configure `MONGODB_URI`, `DB_NAME` and optionally `PORT` in an ignored `.env`, then use `npm start` at http://localhost:3000/. This connects to the configured database, unlike the memory-only preview. Node 24 and 26 are supported. Never commit `.env`, credentials or `.netlify/`.
 
 ## Vercel deployment
 
@@ -19,196 +31,113 @@ Configure `MONGODB_URI` and `DB_NAME` in the Vercel project environment, then re
 
 For a Vercel-only Git push, include `[skip netlify]` in the commit message to prevent the connected Netlify site from deploying that push.
 
-## Interface
+## My Kitchen and Compare
 
-My Kitchen and Shopping List have a top-level switch at `/`, showing one full-width list by default. The selected tab is remembered in this browser. **Compare** reveals both panels: stacked with independent scrolling and visible headers on phones, side by side from 700px. **Exit Compare** returns to the prior tab. The old `/shopping.html` URL forwards to this screen.
+My Kitchen and Shopping List are separate full-width views. The active tab is remembered in this browser. Compare stacks panels on phones with a 20px gap and independent list scrolling; panels sit side by side from 700px. Headers and rounded boundaries stay visible.
 
-Unit selectors offer pieces, bags, packs, bottles, cartons, bunches, g, kg, mL, and L, plus **Custom unit…**. Settings lets users choose an explicit default and add/remove custom options. New entries use the explicit default, otherwise the last successfully saved unit, otherwise pieces. Preferences are stored in localStorage for this browser; inventory and shopping records still use the existing API/MongoDB. Custom names are trimmed, must contain 1–40 characters, and exact duplicate options are rejected. Editing and purchase forms retain the record's original unit, including legacy values. Removing a custom preference never edits stored records. Units are never converted or renamed.
-Each section has Add and Refresh controls. Add, Edit, shopping-plan, purchase, and deletion forms open as bottom sheets on phones and centered dialogs on larger screens. Cards keep their main action visible and group Edit/Delete under **More actions**. All controls have targets of at least 44px, and form inputs use at least 16px text. Lists support keyboard scrolling; dialogs contain keyboard focus and support Escape/cancellation, with focus returned to a list control afterward.
+Outside Compare, filters are independent. Entering Compare copies the active view's category to both panels. Changing either category selector immediately updates both lists using a shared Compare value, including All categories and Uncategorized. Exiting restores the separate view filters. Deleted categories reset affected filters to All categories.
 
-Successful changes refresh both lists together. Failed refreshes retain visible cards and show a retry message in the affected list. Save failures preserve entered form values. The interface uses the existing API and purchase transaction behavior below.
+Stock is sorted by the earliest dated batch with remaining quantity, ascending (expired first); undated stock follows. This ordering applies to All categories, individual categories, combined API filters, and Compare. Expiry badges use the user's **local calendar day**, rather than elapsed 24-hour intervals: today and 1–3 days away are amber, past dates are red, with readable text. Later dates use the normal date label. Undated stock stays undated. Indicators refresh at the next local midnight and on focus/visibility return; there is no seconds-based timer.
 
-Settings shows **Units** and **Categories** as equal sections in one scrollable sheet/dialog, with its header and close button kept visible. Category renaming and deletion review appear inline with the relevant category. Unit inputs, new-category inputs, and other inline rename drafts survive interactions in the other section. Escape cancels a focused inline rename or deletion review before closing Settings; cancellation returns focus to the relevant row control, and closing Settings returns focus to its trigger.
+Cards retain Add to list and a More actions menu. Stock details expand into individual batches with quantity, exact unit, location, expiry, Edit batch and Remove batch. The ingredient editor chooses the appropriate batch when multiple batches exist. Removing one batch never removes other batches or the ingredient identity. Whole-ingredient deletion still uses a named confirmation.
 
-## Use the inventory
+## Shopping checklist and one purchase review
 
-- **Create:** choose **Add** in My Kitchen, complete the sheet/dialog, then **Add ingredient**. A successful save closes the form and refreshes both lists.
-- **Read:** ingredients load on opening the screen. **Refresh both lists** retries a failed read; existing cards remain visible while refreshing.
-- **Edit:** open **More actions → Edit** on a card. The form opens with its name, quantity, unit, storage, and optional expiry prefilled. Choose **Save changes** or **Cancel**. Clearing the expiry removes the saved date.
-- **Delete:** open **More actions → Delete**. A confirmation dialog names the ingredient; choose **Confirm delete** or **Cancel**. The card is removed only after the API confirms database success.
-- **Plan a purchase:** choose **Add to list** on a card, confirm the planned quantity and unit, then save. If an unfinished item is already linked or has the same name (case-insensitive), choose **Edit shopping item** instead. Editing an unlinked match explicitly links it to this ingredient; an existing link is retained.
+Add unplanned items with Add; edit planned quantities with the quick action; use More actions for full editing/removal. Removing a shopping item never changes inventory. Checking a box means **Picked up**, not recorded stock. It persists through the API and can be unchecked until recording succeeds. Picked-up and recorded cards look different; recorded boxes are checked and disabled.
 
-Saving, deleting, success, and error feedback is displayed. Conflicting actions and repeated submissions are blocked while a write is pending. Failed saves preserve all entered values and keep the form in Edit mode for retry. After an ambiguous connection failure, cancel and refresh before retrying to check the saved state.
+**To My Kitchen (N)** always counts every picked-up, unrecorded item across all categories, including hidden items. One review sheet includes them all; unpicked items remain on the list. Purchased quantities/units and available package-size details start from the plan and can differ from it. Each row shows a short match summary and optional Details & match controls. Storage for all items can be applied with one action. Expiry always starts blank for a new purchase, including purchases into an existing ingredient. Unassigned storage is valid.
 
-The green palette and storage colors are retained in a compact layout. Quantities and units are stored as entered; there is no unit conversion or automatic merging. Inventory updates use only the selected ID and preserve extra stored fields.
+Matching is rechecked against current inventory in this order:
 
-## Use the shopping list
+1. Existing valid ingredientId.
+2. Previously confirmed alias.
+3. Unique exact match after case/whitespace normalization.
+4. Unique conservative singular/plural match using an explicit food-word vocabulary (for example Egg/Eggs).
 
-Compare shopping items and stock directly in the shared screen. Each panel scrolls independently beneath its header.
+Display names are preserved; normalization is only for matching. The app never strips arbitrary final letters, translates names, or merges merely similar foods. Missing old links are rechecked rather than treated as permanent failures. Ambiguous matches require choosing a suggested record or Keep separate. Details also permits explicitly choosing any existing ingredient. Explicitly confirmed names can be remembered as shared MongoDB aliases; the checkbox is visible when confirming a match. Unknown plurals outside the conservative vocabulary remain separate until explicitly matched.
 
-- **Add:** choose **Add** in Shopping List, enter a name, planned quantity, and any unit, then **Add shopping item**.
-- **Edit:** open **More actions → Edit**, update the prefilled form, then **Save changes** or **Cancel**.
-- **Delete:** open **More actions → Delete**, check the named confirmation, then choose **Confirm delete** or **Cancel**.
-- **Refresh:** saved changes remain after reloading. **Refresh both lists** retries a failed read without discarding visible items.
-- **Check stock:** linked items show the current inventory quantity, unit, and storage location. Reload or refresh to fetch the latest stock. Missing inventory records are identified without removing the shopping item.
-- **Record purchase:** enter the actual purchased quantity, unit, storage, and optional expiry. Explicitly choose **Create a new inventory record** or **Add to linked existing record**. The planned amount stays unchanged. Combining requires an exact, case-sensitive unit match; different units require a new record. When combining, the selected storage and expiry apply to the entire combined record, as explained in the form.
-- **Completed items:** remain visible with the planned and purchased quantities. They no longer offer Record purchase. Purchase retries, including retries from another tab or after a lost response, do not add stock again. Deleting a shopping item does not delete its inventory record.
+New items default to their shopping category and available shopping/last-used storage. Existing matches initially use their inventory category/location. Existing ingredient categories are preserved on recording. Every purchase appends a new batch, retaining older stock. Optional package-size details distinguish known sizes such as 500 g and 1 kg; no size is inferred. Quantities are summarized **only for exactly matching unit strings and package-size labels**; incompatible units/package sizes remain separately labelled. There is no unit conversion and no automatic copying of an older expiry date.
 
-All three fields are required, and planned quantity must be a finite number greater than zero. The interface includes loading, empty, success, validation, and connection-error messages. Failed saves preserve entered values. Conflicting actions and repeated writes are disabled while a save or deletion is pending.
+One confirmation saves the review. Each item is an independent MongoDB transaction: inventory/batch save, optional alias confirmation and shopping completion commit together. The shopping item's ID is the durable idempotency key. Double-clicks, concurrent requests, lost responses and refresh/retry cannot add that purchase again. Successful rows leave the review; failed rows keep their values and error feedback for retry. A network error can leave an outcome temporarily unknown, but retry remains safe. Concurrent automatic matching is serialized so two fresh purchases do not accidentally create duplicate identities.
 
-Manual shopping entries remain separate, including existing items with matching names. Inventory-card additions check for unfinished matches and offer editing instead of creating duplicates. A partial unique index enforces one pending linked item per inventory record. Units are user-defined and never converted. Category migration adds references without replacing existing records (see Managed categories).
+## Settings
+
+Units, Categories and Storage locations are equal green headings in the same scrollable sheet/dialog, with the Settings header and close button visible. Categories and locations use the same inline rename/delete pattern, with feedback beside the relevant record. Drafts in other sections remain intact. Escape cancels a focused inline rename/confirmation before closing the dialog, and focus returns to the appropriate row or Settings trigger.
+
+Units include pieces, bags, packs, bottles, cartons, bunches, g, kg, mL and L, plus reusable custom units. An explicit default wins for new entries, otherwise the last-used unit, otherwise pieces. Legacy units remain available while editing. Removing a unit preference never edits saved stock.
+
+Category names and storage names are trimmed, must have 1–100 characters and are unique regardless of capitalization. Built-in Uncategorized (`categoryId: null`) and Unassigned (`storageId: null`) cannot be edited/deleted. Renaming updates the displayed name without rewriting item assignments. Deletion previews the name and usage; confirmation rechecks usage inside a transaction, clears references and removes only the category/location. A stale preview returns 409 for fresh review. Assignment writes serialize against reference deletion to prevent broken references.
+
+## Data model and migration
+
+Existing collections/routes remain. `ingredients` keeps the same `_id` and display name and now has authoritative `batches`:
+
+```js
+{
+  _id, name, categoryId,
+  batches: [{ _id, quantity, unit, packageSize, storageId, expiryDate,
+              sourceShoppingItemId, purchasedAt }],
+  stockVersion: 1
+}
+```
+
+The original migrated batch retains its original quantity, exact unit, expiry and location. Purchase-only fields are optional on older batches. Existing legacy fields remain saved for preservation, but once batches exist, stock reads/edits use the batches. API responses add `totals`, the earliest remaining `expiryDate`, and readable location/category names. Top-level quantity/unit/packageSize are a compatibility projection for the earliest batch's unit and package size; use `totals`/`batches` for all units. Empty identities report no stock and no invented expiry.
+
+`shopping_items` adds `pickedUp` separately from the existing completion status. Recording stores the actual purchase and batch ID while preserving the planned quantity/unit. `storage_locations` stores stable `_id`, name, case-insensitive nameKey and revision. `ingredient_aliases` maps normalized confirmed names to ingredient IDs. `_workflow_locks` serializes automatic identity matching; it is not a user record.
+
+The migration defaults to a **read-only preview**:
+
+```sh
+npm run migrate:workflow
+```
+
+For an explicitly chosen development/production database, after reviewing/backup, apply with:
+
+```sh
+npm run migrate:workflow -- --apply
+```
+
+Use the existing `migrate:categories` for an older checkout that has not yet migrated category references. Run migrations before using the new UI against that database. No migration runs automatically on startup or deployment.
+
+The workflow migration seeds Fridge, Freezer and Pantry without duplicate names, preserves existing assignments (including hand-entered legacy locations), adds one original batch per legacy ingredient and adds false pickedUp only where missing. It never replaces a document, deletes food, changes original quantities/dates, or changes purchase status. Existing batches/references are not overwritten. The transaction and migration marker make reruns safe and prevent deleted seeded locations from being resurrected. Legacy records remain readable as virtual original batches during transition; an inventory edit/purchase materializes batches for that identity.
 
 ## API
 
-| Method and path | Behavior |
-| --- | --- |
-| `GET /api/ingredients` | Returns `count`, `limit: 100`, and ingredients sorted by name |
-| `GET /api/ingredients?name=eggs` | Case-insensitive literal name search |
-| `GET /api/ingredients?storage=fridge` | Storage filter; can be combined with name |
-| `POST /api/ingredients` | Validates and inserts one record; returns HTTP 201 and the saved record |
-| `PUT /api/ingredients/:id` | Validates and updates the selected record; returns HTTP 200 and the saved record |
-| `DELETE /api/ingredients/:id` | Deletes the selected record; returns HTTP 204 with no body |
-
-POST and PUT accept the same JSON body with `Content-Type: application/json`:
-
-```json
-{
-  "name": "Tomatoes",
-  "quantity": 2,
-  "unit": "pieces",
-  "storage": "fridge",
-  "expiryDate": "2028-02-29"
-}
-```
-
-Both routes require name, quantity, unit, and storage. Names and units are trimmed; name accepts 1–100 characters and unit 1–40. Quantity must be a finite JSON number greater than zero. Storage must be `fridge`, `freezer`, or `pantry`. Expiry accepts a real `YYYY-MM-DD` date stored as a BSON Date at midnight UTC; omitted, null, or empty expiry is stored as null.
-
-PUT uses `$set` for the validated ingredient fields and an explicitly supplied category reference and does not upsert, replace the document, or change its `_id`. Client-supplied extra fields are ignored. DELETE uses `deleteOne` with exactly the selected `_id`. IDs must be 24 hexadecimal characters. Invalid fields, IDs, malformed JSON, or oversized JSON return HTTP 400. A valid ID with no matching record returns HTTP 404. Unexpected database errors return action-specific HTTP 500 messages; credentials and driver details stay private.
-
-### Shopping items
+All paths use the existing relative `/api` convention. IDs are MongoDB ObjectId strings; categoryId/storageId accept null fallbacks. Mutations validate server-side. APIs are shared and uncached. Errors return readable 400/404/409 or sanitized 500 responses; request JSON is bounded at 128 KB.
 
 | Method and path | Behavior |
 | --- | --- |
-| `GET /api/shopping-items` | Returns `count` and `shoppingItems`, sorted by name and ID, with live `currentInventory` for linked items |
-| `GET /api/shopping-items?ingredientId=:id` | Returns unfinished linked or exact-name matches for an inventory card |
-| `POST /api/shopping-items` | Validates and inserts a separate shopping item; returns HTTP 201 and the saved item |
-| `PUT /api/shopping-items/:id` | Updates only the selected item; returns HTTP 200 and the saved item |
-| `DELETE /api/shopping-items/:id` | Deletes only the selected item; returns HTTP 204 with no body |
-| `POST /api/shopping-items/:id/purchase` | Saves the actual purchase to inventory and completes the shopping item atomically |
+| `GET /api/ingredients` | All inventory with batches/totals, sorted by earliest remaining expiry |
+| `GET /api/ingredients?categoryId=:id&name=eggs&storageId=:id` | Combined server-side filters; `null` selects a fallback |
+| `POST /api/ingredients` | Name, positive quantity, unit, optional categoryId/storageId/expiryDate/packageSize; creates identity + batch |
+| `PUT /api/ingredients/:id` | Edits identity name/category and one batch; `batchId` required when multiple batches exist |
+| `DELETE /api/ingredients/:id/batches/:batchId` | Removes only that stock batch; returns refreshed ingredient |
+| `DELETE /api/ingredients/:id` | Deletes only that whole identity, with UI confirmation |
+| `GET /api/shopping-items?categoryId=:id` | Planned/recorded items and a global pickedUpCount |
+| `GET /api/shopping-items?ingredientId=:id` | Unrecorded linked/normalized matching items for duplicate prevention |
+| `POST /api/shopping-items` | Name, plannedQuantity, unit, optional categoryId/storageId/ingredientId/packageSize |
+| `PUT /api/shopping-items/:id` | Edits the plan; preserves completion, picking and omitted reference fields |
+| `PATCH /api/shopping-items/:id/picked-up` | `{ pickedUp: true/false }`; completed items cannot be unchecked |
+| `DELETE /api/shopping-items/:id` | Removes the plan only, leaving inventory intact |
+| `GET /api/shopping-items/review` | All picked-up/unrecorded rows and current match candidates, ignoring category filters |
+| `POST /api/shopping-items/transfer` | `{ items: [...] }`; at most 100 unique rows per request, per-row results |
+| `GET/POST /api/categories` | List/create shared categories |
+| `GET/PUT/DELETE /api/categories/:id` | Usage preview/rename/confirmed transactional deletion |
+| `GET/POST /api/storage-locations` | List/create shared storage locations |
+| `GET/PUT/DELETE /api/storage-locations/:id` | Usage preview/rename/confirmed transactional deletion |
 
-POST and PUT accept the same JSON body:
+Transfer rows contain shoppingItemId, actual quantity/unit, storageId, optional categoryId/expiryDate/packageSize, and `matchMode`: `auto`, `selected` (with matchId and optional rememberAlias), or `separate`. The UI chunks large reviews into 25-row requests under one confirmation. Results identify successes, alreadyCompleted retries, and failures; HTTP 200 can contain a partial failure, so inspect each result.
 
-```json
-{
-  "name": "Tomatoes",
-  "plannedQuantity": 2.5,
-  "unit": "bags"
-}
-```
+Legacy `category=protein/grains/fruits_vegetables/other` and `storage=fridge/freezer/pantry` are accepted as aliases. The former `POST /api/shopping-items/:id/purchase` remains available for older clients using destination new/existing; it now appends a batch rather than replacing an older expiry/location. New UI purchases use bulk review and never require a destination dropdown.
 
-Names and units are trimmed and accept 1–100 and 1–40 characters respectively. `plannedQuantity` must be a finite JSON number greater than zero. POST and PUT also accept an optional `ingredientId` to explicitly link an existing ingredient. Linked entries receive `status: "pending"`; existing unlinked entries need no changes. POST returns HTTP 409 with `existingItem` when a matching unfinished item exists. Concurrent linked additions are protected by a partial unique index. PUT uses `$set` without upserting or replacing documents, and cannot reassign a link or reopen a completed item. Client-supplied status and purchase fields are ignored. The same ObjectId, HTTP 400/404, request-size, and private-error handling rules apply.
+## Verification for this update
 
-The purchase endpoint accepts:
+The local build and **47 tests** pass. Tests cover migration preservation/reruns, location management/deletion rollback, category and combined filters, required expiry states and ordering, daylight-saving calendar boundaries, checklist persistence and removal, hidden selection counts, stale links, Egg/Eggs/aliases/ambiguity, different expiry/unit batches, targeted batch editing/removal, concurrent/repeated submissions, completion failure rollback and retry.
 
-```json
-{
-  "quantity": 1.5,
-  "unit": "pieces",
-  "destination": "existing",
-  "storage": "fridge",
-  "expiryDate": "2026-12-01"
-}
-```
+Real MongoDB checks in the disposable workflow database passed migration/rerun preservation, location create/rename/duplicate rejection/deletion, hidden picked-up selection, actual persisted batches with differing units/dates, confirmed aliases, concurrent idempotency, injected completion failure rollback, partial retry, batch editing/removal and fresh-read persistence. The disposable database was removed.
 
-`destination` must explicitly be `new` or `existing`. Purchased fields use the same validation as inventory, and do not change the planned quantity/unit. `existing` uses only the item's linked inventory ID and rejects missing records or non-matching units with HTTP 409. `new` creates a separate inventory record even when a link exists. Responses contain `shoppingItem`, `ingredient`, and `alreadyCompleted`.
+Safari browser checks used the isolated fixture server at 320×568, 390×844, 768×1024 and 1280×800. They covered category synchronization from either panel (including All/Uncategorized and active-view entry), expiry labels/order in Compare, picking/unchecking, unplanned Add and Remove, hidden-category review, corrected quantities, shared storage, ambiguous one-tap matching and visible alias confirmation, location creation/rename/assigned deletion, batch editing/removal, reload persistence and partial-failure retry with the failed row retaining 3.25. The final narrow-phone Compare layout provides 110px independently scrolling stock windows with a 20px gap; controls measured at least 44px, inputs at least 16px, with no horizontal overflow. Very short phones temporarily hide the single-view switch inside Compare; Exit Compare remains visible and restores it. Tablet and desktop panels remain side by side and the review is a centered dialog.
 
-Inventory saving and completion run sequentially in one MongoDB transaction, using the cached client's session. Failure rolls both writes back. The completed shopping ID is the durable idempotency key: repeated or concurrent requests return the original purchase without adding stock again. Completion stores the actual purchase, original link, saved inventory ID, and completion time; the item is linked to the saved inventory record. This requires MongoDB transaction support (provided by the connected Atlas deployment); there is no unsafe fallback to independent writes.
+The production workflow migration was applied after a private backup of the affected collections. It retained the original fields of all five ingredients and both shopping items, added their stock batches/storage references/checklist state, and seeded three storage locations. A second run changed zero records. Backup files and credentials remain outside Git.
 
-## Verification
-
-```sh
-npm test
-npm run build
-npm run dev -- --offline --no-open
-```
-
-Netlify Dev serves **http://localhost:8888/** and loads `.env` without publishing. In another terminal:
-
-```sh
-npm run verify:api -- http://localhost:8888
-```
-
-The automated tests use fake collections and a DOM adapter running the real frontend script; they never access Atlas. They cover Create/Read behavior, shared POST/PUT validation, expiry Date/null handling, ObjectId validation, single-record writes, missing records, database failures, connection reuse, edit prefilling/cancel/retry, deletion confirmation/cancel/timing, duplicate prevention, and stale refresh protection.
-
-The read-only `verify:api` script checks filters, repeated reads, invalid create input, malformed update/delete IDs, and rejection of deletion without an ID. It changes no records and expects the existing sample data to contain eggs and fridge ingredients.
-
-Local verification on **November 15, 2026** used exactly one newly created disposable record, **DISPOSABLE CRUD TEST 2026-11-15**. The original Create form created it in Chrome. The real frontend script saved changes to all five fields through the local API; a real Chrome reload showed the saved name, quantity, unit, storage, and expiry, and Edit prefilled those saved values. A direct MongoDB read confirmed the expiry was a BSON Date.
-
-The same disposable record was then edited through Netlify Dev to clear expiry and deleted through its actual Function/redirect path. Named confirmation, cancellation, repeated-submit prevention, removal after success, and absence after a fresh page load passed. A BSON-aware before/after comparison confirmed all **9 pre-existing documents remained unchanged**. The disposable record was removed. No pre-existing test/sample records were edited or deleted.
-
-Shopping List verification on **November 17, 2026** passed the build and all **27 existing tests**, with no new automated tests added. The local page rendered its navigation, form, and empty state. Real API checks created two disposable items with the same name and different custom units, edited one, and confirmed the saved values with a fresh read and the actual Netlify Function adapter. Invalid quantity, blank name, malformed IDs, and missing records returned the expected errors. Both disposable items were deleted by their exact IDs. A BSON-aware comparison confirmed all **5 ingredient records present at the start of this session were unchanged**, and the shopping collection was empty again. Browser automation was unreliable, so a complete browser interaction pass was not verified locally.
-
-Connected workflow verification on **November 18, 2026** used only labelled disposable records. Chrome verified inventory-to-shopping creation, the duplicate-edit offer and prefilled edit, linked current stock, an explicit destination choice, unit-mismatch validation, and purchasing 1.5 pieces against a plan of 4 (stock changed from 2 to 3.5). One-off API checks verified retry and concurrent-request idempotency for both existing and new inventory records, different planned/purchased units, invalid input, linking a legacy name match, and recovery from a deleted inventory link. An injected completion-write failure through the actual Netlify Function adapter rolled back the inventory write and left the item pending. All disposable records were removed by exact ID and name; a BSON-aware comparison confirmed the **5 original ingredients and 1 original shopping item remained unchanged**. No automated tests were added.
-
-Mobile redesign verification on **November 18, 2026** used a temporary server outside the repository with isolated in-memory collections and the real API/frontend code. It could not connect to MongoDB. Chrome reviewed 320×568 and 390×844 phone viewports and a 768×1024 tablet viewport; Safari reviewed 1280×800 desktop. Both panels stayed visible, scrolled independently, and retained their headers. Layout measurements found no horizontal overflow, no visible button targets below 44px, and all inputs at least 16px. Long names and custom units wrapped within cards. Browser checks covered bottom sheets, centered dialogs, keyboard menu access, Escape cancellation, Create/Edit/Delete, a failed edit and retry with retained values, duplicate-plan editing, exact-unit validation, and synchronized purchases into both existing and new inventory records. Planned quantities stayed distinct from purchased quantities. All writes used temporary fixtures; no existing database records were changed. The build and all 27 existing tests passed. The supplied ZIP was not available locally, so the redesign was adapted directly to the current source. These are desktop browser viewport checks; a physical-phone software-keyboard pass was not performed.
-
-## Netlify deployment
-
-The repository's `main` branch is connected to the existing Netlify site at https://coruscating-caramel-2abd72.netlify.app/. Pushing changes to `main` triggers deployment. Check the latest deployment's commit and published status before testing the live interface.
-
-Existing settings are unchanged: build command `npm run build`, publish directory `public`, Functions directory `netlify/functions`, and `/api/*` redirects to the Express Function. Browser requests remain relative `/api/...` URLs. MongoDB connections are cached per process or warm Function instance. `.env` and `.netlify/` remain excluded from Git.
-
-To deploy after review, commit the changes and push to the branch connected to the existing Netlify site. Keep `MONGODB_URI` and `DB_NAME=kitchen_app` in the Netlify Functions environment. Never upload `.env` or put database credentials in browser code. Local verification does not verify the hosted environment.
-
-For live write verification, create a new clearly labelled disposable record, edit only that record, reload to confirm persistence, then delete only that record after checking its name. Compare the existing records before and after. Preserve every pre-existing record, including older sample and test records.
-
-
-Refinement verification on **November 22, 2026** passed the build and all 27 existing tests. Isolated in-memory fixtures verified a shopping write using a custom default, trimmed custom names, duplicate rejection, legacy `grams` edit prefilling, tab persistence after reload, and Compare return behavior. Safari viewport reviews at 390×844, 768×1024, and 1280×800 found no horizontal overflow or visible button targets below 44px; inputs measured at least 16px. Comparison panels were stacked on phones and side by side on larger screens. Bottom clearance reserves space for hosting badges. API/database source files were unchanged and no real records were modified. Physical-device keyboard behavior and every unit/purchase combination were not manually exercised in this update.
-
-
-## Managed categories
-
-Categories are shared across the existing kitchen dataset, not private to a browser or user. MongoDB `categories` documents have stable ObjectIds and a `name`; ingredients and shopping items store `categoryId` as an ObjectId or null. Responses include `categoryId` and the current `categoryName`. Null displays as **Uncategorized**, a built-in, non-editable fallback rather than a categories document. Renaming only changes the category document; records retain their IDs and references.
-
-**Settings → Categories** creates, renames, or deletes categories with loading, success, validation, and error feedback. Names are trimmed, require 1–100 characters, and have a unique lowercase `nameKey` to reject duplicates regardless of capitalization. The reserved Uncategorized name cannot be created. Category dropdowns and independent My Kitchen/Shopping List filters load from the API. A category change refreshes both lists and all selectors. Deleting an active filter resets it to All categories.
-
-| Method and path | Behavior |
-| --- | --- |
-| `GET /api/categories` | Lists categories, the built-in null fallback, and `shared: true` |
-| `POST /api/categories` | Creates `{ "name": "Snacks" }`; returns HTTP 201 |
-| `PUT /api/categories/:id` | Renames using `{ "name": "Treats" }` |
-| `GET /api/categories/:id` | Returns name plus `inventoryCount` and `shoppingCount` for deletion review |
-| `DELETE /api/categories/:id` | Requires reviewed `name`, `inventoryCount`, and `shoppingCount` in JSON; returns HTTP 204 |
-
-Deletion checks the reviewed name/counts again inside a MongoDB transaction. Stale confirmation returns HTTP 409 and requires reviewing usage again. The transaction clears references in both item collections and then removes the category; it never deletes inventory or shopping records or changes purchase status. Failure rolls everything back. Assigning a non-null category also writes the category revision inside its item-save transaction, serializing assignment against concurrent deletion so it cannot leave a dangling reference. Transactions require the existing Atlas replica set; there is no partial-write fallback.
-
-Ingredient and shopping POST/PUT accept `categoryId` as a 24-character ObjectId string or null. Invalid IDs return HTTP 400; references to unavailable categories return HTTP 409. Omitting the field on PUT preserves the saved reference. New manual entries default to null. `GET /api/ingredients?categoryId=:id` and `GET /api/shopping-items?categoryId=:id` filter on the server; use `categoryId=null` for Uncategorized. Ingredient category filtering combines with existing name/storage filters, and shopping filtering combines with ingredient lookup. Filters use the same resolved category IDs as responses.
-
-Add to list copies the ingredient's category reference for a new plan. Editing a shopping category never changes inventory. A purchase into a new inventory record initially uses the shopping category and allows an explicit override (including null). A purchase into an existing record preserves that inventory category. Exact-unit checks, duplicate prevention, and purchase idempotency remain in place.
-
-### Migration and transition
-
-Run once before deploying this version, and safely rerun after deployment if an older client wrote legacy records during the transition:
-
-```sh
-npm run migrate:categories
-```
-
-The migration seeds Protein, Grains, and Fruits & Vegetables using deterministic stable IDs and maps `protein`, `grains`, and `fruits_vegetables` references. Existing `other` and missing values become null; missing shopping categories do not inherit a link. It only adds missing `categoryId` fields and preserves every other field, including legacy `category`, links and purchase status. Category seeding and item updates share a transaction. The `_migrations/category-references-v1` marker prevents a later rerun from resurrecting categories that users deleted. The unique name index prevents duplicate category names. Existing categoryId assignments are never overwritten.
-
-For older clients, legacy `category` writes/queries are accepted as aliases for the three migrated IDs or null for `other`; responses retain a deprecated legacy `category` field. The authoritative reference is categoryId, even when null. Legacy documents without a reference are resolved read-only until migration. New clients always use categoryId and API category names; an older client cannot represent newly created categories and should refresh to the current interface.
-
-### Category verification
-
-```sh
-npm test
-npm run build
-npm run verify:categories
-```
-
-`verify:categories` explicitly performs real write checks in a uniquely named disposable database (`kitchen_category_check_<timestamp>`), then drops only that database. It never uses `kitchen_app`. It requires the configured Atlas credential to permit disposable-database creation and transactions. Checks cover migration preservation/reruns, trimmed names and case-insensitive duplicates, create/rename/filter, linked shopping category copying/editing, purchases into new/existing inventory and retry idempotency, deletion with assigned records, rollback after an injected partial failure, and concurrent assignment/deletion. Fresh database reads check persisted results.
-
-Verification on **November 23, 2026** passed the build and all **33 tests**, plus the real MongoDB verification above. The shared-data migration retained all **5 ingredients and 2 shopping records**, adding only categoryId; a BSON comparison confirmed every original field and status was preserved. A second migration changed zero records. Browser checks used isolated in-memory fixtures for mobile category management, creation, duplicate rejection, renaming assigned categories, usage confirmation/deletion, both-list refresh, Add to list copying, new-record purchase category prefilling/saving, persistence after browser reload, and independent Compare filters (including deleted-filter reset). Phone (390×844), tablet (768×1024), and desktop (1280×800) viewport measurements found no horizontal overflow or visible button targets below 44px; inputs measured at least 16px. These checks do not constitute a physical-phone or software-keyboard test.
-
-
-Settings layout verification on **November 23, 2026** passed the build and all **33 existing tests**. Safari checks with isolated in-memory fixtures covered custom-unit creation/removal, inline category rename/create, case-insensitive duplicate feedback in the relevant row, deletion usage preview/cancellation/confirmation with assigned records, and preserved drafts across both sections and category refreshes. Escape returned focus after inline cancellation; saving, deleting, closing, and reopening Settings restored appropriate focus. Phone viewports at 320×568 and 390×844 and desktop at 1280×800 showed matching section hierarchy, body scrolling with a visible header/close control, no horizontal overflow, button targets at least 44px, and inputs at least 16px. Categories and units remained available after reloading the fixture page. No API/database code or existing MongoDB records were changed; physical-device keyboard behavior was not tested.
+Physical-device software keyboards were not tested. Package sizes must be supplied when known and are never inferred or converted; unknown plurals outside the conservative vocabulary require an explicit match/alias.

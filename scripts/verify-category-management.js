@@ -16,6 +16,7 @@ connectionModule.withTransaction = work => connection.withTransaction((database,
 } },session));
 const handle = require('serverless-http')(require('../app').createApp());
 const {migrateCategories} = require('./migrate-categories');
+const {migrateWorkflow} = require('./migrate-workflow');
 const {legacy} = require('../categories');
 async function request(path,method='GET',body){const url=new URL(path,'http://localhost');const response=await handle({httpMethod:method,path:url.pathname,queryStringParameters:Object.fromEntries(url.searchParams),headers:{'content-type':'application/json'},body:body===undefined?null:JSON.stringify(body),isBase64Encoded:false},{});return{status:response.statusCode,body:response.body?JSON.parse(response.body):null};}
 const encode = data => BSON.EJSON.stringify(data,{relaxed:false});
@@ -33,6 +34,7 @@ const encode = data => BSON.EJSON.stringify(data,{relaxed:false});
   for(const name of ['ingredients','shopping_items'])assert.equal(encode(after[name].map(({categoryId,...row})=>row)),encode(before[name]));
   assert.equal(after.ingredients[0].categoryId.toString(),legacy.protein._id.toString());assert.equal(after.ingredients[1].categoryId,null);assert.equal(after.shopping_items[1].categoryId,null);
   assert.deepEqual(await migrateCategories(database,connection.withTransaction),{ingredients:0,shopping_items:0});
+  await migrateWorkflow(database,connection.withTransaction);
   console.log('PASS real MongoDB migration: fields/status preserved, Other/missing => null, rerun changes zero records.');
   const created=await request('/api/categories','POST',{name:'  Snacks  '});assert.equal(created.status,201);const id=created.body._id;
   assert.equal((await request('/api/categories','POST',{name:'sNACKs'})).status,409);

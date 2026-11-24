@@ -16,7 +16,7 @@ class Element {
   focus() { this.focused = true; }
 }
 
-function createHarness(fetch, { categories = false } = {}) {
+function createHarness(fetch, { categories = false, clock } = {}) {
   const nodes = Object.fromEntries(['ingredient-form', 'save-button', 'form-message', 'refresh-button', 'ingredient-list', 'list-message', 'ingredient-cards', 'ingredient-count', 'cancel-edit-button', 'add-heading', 'operation-message'].map(id => [id, new Element()]));
   const form = nodes['ingredient-form'];
   form.elements = Object.fromEntries(['name', 'quantity', 'unit', 'storage', 'expiryDate'].map(name => [name, new Element()]));
@@ -33,9 +33,18 @@ function createHarness(fetch, { categories = false } = {}) {
     if (categories) form.elements.categoryId.value = '';
     form.resetCount = (form.resetCount || 0) + 1;
   };
-  const document = { querySelector: selector => nodes[selector.slice(1)], createElement: () => new Element() };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8'), { document, fetch, ...(categories ? { categoryUI: { set(select, value) { select.value = value || ''; }, available: () => true } } : {}) });
-  return { nodes, form, submit: () => form.listeners.submit({ preventDefault() {} }) };
+  const events = {};
+  const document = { querySelector: selector => nodes[selector.slice(1)], createElement: () => new Element(), addEventListener(name,fn) { events[name]=fn; } };
+  const extra = {};
+  if (clock) {
+    class LocalDate extends Date { constructor(...args) { super(...(args.length ? args : [clock.now])); } static now() { return +clock.now; } }
+    Object.assign(extra,{Date:LocalDate,window:{addEventListener(name,fn){events[name]=fn;}},setTimeout(fn,delay){clock.timer=fn;clock.delay=delay;return 1;},clearTimeout(){}});
+  }
+  const context = vm.createContext({ document, fetch, ...extra, ...(categories ? { categoryUI: { set(select, value) { select.value = value || ''; }, available: () => true } } : {}) });
+  if (clock) vm.runInContext(fs.readFileSync(path.join(__dirname,'../public/expiry.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../public/app.js'),'utf8'),context);
+
+  return { nodes, form, events, submit: () => form.listeners.submit({ preventDefault() {} }) };
 }
 
 module.exports = { createHarness, flush: () => new Promise(resolve => setImmediate(resolve)) };

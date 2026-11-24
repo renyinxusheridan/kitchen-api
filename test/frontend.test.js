@@ -242,7 +242,7 @@ test('Frontend prevents duplicate submits, sends JSON, resets after save, and re
   const posts = calls.filter(call => call.options.method === 'POST');
   assert.equal(posts.length, 1);
   assert.equal(posts[0].url, '/api/ingredients');
-  assert.deepEqual(JSON.parse(posts[0].options.body), { name: 'Test', quantity: 2, unit: 'pieces', storage: 'fridge', expiryDate: null });
+  assert.deepEqual(JSON.parse(posts[0].options.body), { name: '  Test  ', quantity: 2, unit: 'pieces', storage: 'fridge', expiryDate: null });
   saved = true;
   resolvePost(reply({ ...sample, name: 'Test' }));
   await first;
@@ -274,4 +274,20 @@ test('Frontend rejects zero quantity without sending a create request', async ()
   await h.submit();
   assert.equal(requests, 1, 'Only the initial GET should have been made');
   assert.match(h.form.elements.quantity.validationMessage, /greater than zero/);
+});
+
+
+test('Expiry badges refresh at local midnight and on focus/visibility without a seconds timer', async () => {
+  const clock={now:new Date(2026,10,23,23,59)};
+  const h=createHarness(async()=>reply({ingredients:[{...sample,expiryDate:'2026-11-24T00:00:00.000Z'}]}),{clock});
+  await flush();
+  assert.match(h.nodes['ingredient-cards'].textContent,/Expires tomorrow/);
+  assert.ok(clock.delay>59000 && clock.delay<61000);
+  clock.now=new Date(2026,10,24,0,1);clock.timer();
+  assert.match(h.nodes['ingredient-cards'].textContent,/Expires today/);
+  assert.ok(clock.delay>23*60*60*1000);
+  clock.now=new Date(2026,10,25,15);h.events.focus();
+  assert.match(h.nodes['ingredient-cards'].textContent,/Expired yesterday/);
+  clock.now=new Date(2026,10,27,15);h.events.visibilitychange();
+  assert.match(h.nodes['ingredient-cards'].textContent,/Expired 3 days ago/);
 });

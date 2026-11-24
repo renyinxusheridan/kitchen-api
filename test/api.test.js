@@ -1,6 +1,13 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const serverless = require('serverless-http');
+const databaseModule = require('../db');
+const { memoryDatabase } = require('./memory-db.cjs');
+const memory = memoryDatabase();
+databaseModule.getDatabase = async () => memory.db;
+databaseModule.withTransaction = work => memory.transact(work);
+const { legacyLocations } = require('../storage');
+memory.reset({storage_locations:Object.entries(legacyLocations).map(([legacyKey,location])=>({...location,legacyKey,nameKey:location.name.toLowerCase(),revision:0}))});
 const { createApp } = require('../app');
 const { createDatabaseConnection, connectionErrorMessage } = require('../db');
 const { ObjectId } = require('mongodb');
@@ -18,14 +25,14 @@ test('Function adapter preserves ingredient paths and filters', async () => {
   const handle = serverless(createApp(async () => ({
     find(filter) {
       seen.push(filter);
-      return { sort() { return this; }, limit() { return this; }, async toArray() { return [{ _id: 'example', name: 'Eggs' }]; } };
+      return { sort() { return this; }, limit() { return this; }, async toArray() { return [{ _id: 'example', name: 'Eggs', quantity: 2, unit: 'pieces', storage: 'fridge' }]; } };
     }
   })));
   for (const [path, filter] of [
     ['/api/ingredients', {}],
     ['/api/ingredients?name=eggs', { name: { $regex: 'eggs', $options: 'i' } }],
-    ['/api/ingredients?storage=fridge', { storage: 'fridge' }],
-    ['/api/ingredients?name=.%2A&storage=fridge', { name: { $regex: '\\.\\*', $options: 'i' }, storage: 'fridge' }]
+    ['/api/ingredients?storage=fridge', {}],
+    ['/api/ingredients?name=.%2A&storage=fridge', { name: { $regex: '\\.\\*', $options: 'i' } }]
   ]) {
     const response = await handle(event(path), {});
     assert.equal(response.statusCode, 200);
@@ -37,13 +44,20 @@ test('Function adapter preserves ingredient paths and filters', async () => {
 const ingredientId = '507f1f77bcf86cd799439011';
 const validEdit = { name: '  Edited test  ', quantity: 3.5, unit: '  grams  ', storage: 'freezer', expiryDate: '2028-02-29' };
 
-test('PUT updates only the selected ID and five allowed fields, without upsert or replacement', async () => {
+test('PUT edits the selected batch and name without replacing the ingredient or extra fields', async () => {
   const handle = serverless(createApp(async () => ({
+    async findOne() { return {_id:new ObjectId(ingredientId),name:'Original',quantity:2,unit:'pieces',storage:'fridge',extra:'preserve'}; },
     async findOneAndUpdate(filter, update, options) {
       assert.ok(filter._id instanceof ObjectId);
       assert.equal(filter._id.toHexString(), ingredientId);
-      assert.deepEqual(update, { $set: { name: 'Edited test', quantity: 3.5, unit: 'grams', storage: 'freezer', expiryDate: new Date('2028-02-29T00:00:00.000Z') } });
-      assert.deepEqual(options, { returnDocument: 'after', upsert: false });
+      assert.equal(update.$set.name, validEdit.name);
+      assert.equal(update.$set.batches.length,1);
+      assert.equal(update.$set.batches[0].quantity,3.5);
+      assert.equal(update.$set.batches[0].unit,'grams');
+      assert.equal(String(update.$set.batches[0].storageId),String(legacyLocations.freezer._id));
+      assert.deepEqual(update.$set.batches[0].expiryDate,new Date('2028-02-29T00:00:00.000Z'));
+      assert.ok(!Object.hasOwn(update.$set,'extra'));
+      assert.equal(options.upsert,false);
       return { _id: filter._id, ...update.$set, preserved: true };
     }
   })));
@@ -55,8 +69,9 @@ test('PUT updates only the selected ID and five allowed fields, without upsert o
 
 test('PUT can clear expiry and accepts a successful unchanged update', async () => {
   const handle = serverless(createApp(async () => ({
+    async findOne() { return {_id:new ObjectId(ingredientId),name:'Original',quantity:2,unit:'pieces',storage:'fridge'}; },
     async findOneAndUpdate(filter, update) {
-      assert.equal(update.$set.expiryDate, null);
+      assert.equal(update.$set.batches[0].expiryDate, null);
       return { _id: filter._id, ...update.$set };
     }
   })));
@@ -78,6 +93,7 @@ test('PUT and DELETE reject malformed IDs before accessing MongoDB', async () =>
 
 test('PUT and DELETE return 404 for a missing record', async () => {
   const handle = serverless(createApp(async () => ({
+    async findOne() { return null; },
     async findOneAndUpdate() { return null; },
     async deleteOne() { return { deletedCount: 0 }; }
   })));
@@ -190,7 +206,7 @@ test('The actual Netlify entrypoint can reject an invalid query without database
   assert.equal(context.callbackWaitsForEmptyEventLoop, false);
 });
 
-test('POST inserts only validated fields, trims text, and converts expiry to a UTC Date', async () => {
+test('POST preserves display names, trims units, validates fields and creates the original stock batch', async () => {
   let written;
   const handle = serverless(createApp(async () => ({
     async insertOne(record) { written = record; return { insertedId: 'created-id' }; }
@@ -200,8 +216,15 @@ test('POST inserts only validated fields, trims text, and converts expiry to a U
     expiryDate: '2028-02-29', _id: 'untrusted-id', extra: 'ignored'
   }), {});
   assert.equal(response.statusCode, 201);
-  assert.deepEqual(written, { name: 'Test ingredient', quantity: 1.5, unit: 'grams', storage: 'pantry', expiryDate: new Date('2028-02-29T00:00:00.000Z'), categoryId: null });
-  assert.deepEqual(JSON.parse(response.body), { ...written, category: 'other', categoryName: 'Uncategorized', expiryDate: '2028-02-29T00:00:00.000Z', _id: 'created-id' });
+  assert.equal(written.name,'  Test ingredient  ');
+  assert.equal(written.unit,'grams');
+  assert.equal(written.extra,undefined);
+  assert.notEqual(String(written._id),'untrusted-id');
+  assert.equal(written.batches.length,1);
+  assert.equal(written.batches[0].quantity,1.5);
+  assert.deepEqual(written.batches[0].expiryDate,new Date('2028-02-29T00:00:00.000Z'));
+  assert.equal(JSON.parse(response.body).expiryDate,'2028-02-29T00:00:00.000Z');
+  assert.equal(JSON.parse(response.body).categoryName,'Uncategorized');
 });
 
 test('POST stores missing or empty expiry dates as null', async () => {
@@ -236,7 +259,7 @@ test('POST and PUT reject invalid fields before making any database request', as
 
 test('POST and PUT return helpful 400 responses for malformed or oversized JSON', async () => {
   const handle = serverless(createApp(async () => { assert.fail('Invalid JSON must not reach the database'); }));
-  for (const body of ['{"name":', JSON.stringify({ name: 'x'.repeat(11000) })]) {
+  for (const body of ['{"name":', JSON.stringify({ name: 'x'.repeat(140000) })]) {
     for (const [path, method] of [['/api/ingredients', 'POST'], ['/api/ingredients/507f1f77bcf86cd799439011', 'PUT']]) {
       const request = event(path, method, {});
       request.body = body;

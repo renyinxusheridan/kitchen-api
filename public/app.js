@@ -17,6 +17,9 @@ let saving = false;
 let deleting = false;
 let loading = false;
 let editing = null;
+let editingBatch = null;
+const storageField = form.elements.storageId || form.elements.storage;
+const batchSelect = form.elements.batchId;
 let pendingDelete = null;
 let inventory = [];
 let cardButtons = [];
@@ -32,7 +35,9 @@ function syncControls() {
   cancelEditButton.disabled = busy;
   if (categoryFilter) categoryFilter.disabled = active;
   if (form.elements.categoryId) form.elements.categoryId.disabled = busy;
-  for (const key of ['name', 'quantity', 'unit', 'storage', 'expiryDate']) form.elements[key].disabled = busy;
+  for (const key of ['name', 'quantity', 'unit', 'expiryDate']) form.elements[key].disabled = busy;
+  storageField.disabled = busy;
+  if (batchSelect) batchSelect.disabled = busy;
   for (const button of cardButtons) button.disabled = active;
 }
 
@@ -43,8 +48,9 @@ function message(node, text, state = '') {
 
 function finishEditing() {
   adding = false;
-  editing = null;
+  editing = null; editingBatch = null;
   form.reset();
+  if (batchSelect) document.querySelector('#batch-select-field').hidden = true;
   quantityInput.setCustomValidity('');
   formHeading.textContent = 'Add an ingredient';
   saveButton.textContent = '+ Add ingredient';
@@ -52,7 +58,7 @@ function finishEditing() {
   syncControls();
 }
 
-function startEditing(ingredient) {
+function startEditing(ingredient, selectedBatch) {
   if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
   editing = ingredient;
   // Discard an older GET so it cannot replace cards while the form is open.
@@ -60,10 +66,20 @@ function startEditing(ingredient) {
   loading = false;
   list.setAttribute('aria-busy', 'false');
   formHeading.textContent = 'Edit an ingredient';
-  for (const key of ['name', 'quantity', 'unit', 'storage']) form.elements[key].value = ingredient[key];
+  form.elements.name.value = ingredient.name;
   if (form.elements.categoryId) globalThis.categoryUI?.set(form.elements.categoryId, ingredient.categoryId);
-  globalThis.kitchenUnits?.set(form.elements.unit, ingredient.unit);
-  form.elements.expiryDate.value = ingredient.expiryDate ? ingredient.expiryDate.slice(0, 10) : '';
+  const batch = selectedBatch || ingredient.batches?.[0] || ingredient;
+  if (batchSelect) {
+    batchSelect.replaceChildren();
+    for (const item of ingredient.batches || []) {
+      const option = document.createElement('option'); option.value = item._id;
+      option.textContent = item.quantity+' '+item.unit+(item.packageSize?' ('+item.packageSize+')':'')+' · '+item.storageName+(item.expiryDate ? ' · '+item.expiryDate.slice(0,10) : ' · No expiry');
+      batchSelect.append(option);
+    }
+    batchSelect.value = batch._id || '';
+    document.querySelector('#batch-select-field').hidden = (ingredient.batches?.length || 0) < 2;
+  }
+  fillBatch(batch);
   quantityInput.setCustomValidity('');
   saveButton.textContent = 'Save changes';
   cancelEditButton.hidden = false;
@@ -74,8 +90,39 @@ function startEditing(ingredient) {
   form.elements.name.focus();
 }
 
+function fillBatch(batch) {
+  editingBatch = batch._id || null;
+  form.elements.quantity.value = batch.quantity > 0 ? batch.quantity : 1;
+  if (globalThis.kitchenUnits) globalThis.kitchenUnits.set(form.elements.unit, batch.unit || globalThis.kitchenUnits.preferred());
+  else form.elements.unit.value = batch.unit;
+  if (globalThis.storageUI) globalThis.storageUI.set(storageField, batch.storageId);
+  else storageField.value = batch.storage;
+  if (form.elements.packageSize) form.elements.packageSize.value = batch.packageSize || '';
+  form.elements.expiryDate.value = batch.expiryDate ? batch.expiryDate.slice(0,10) : '';
+}
+batchSelect?.addEventListener('change', () => {
+  const batch = editing?.batches?.find(batch => batch._id === batchSelect.value);
+  if (batch) fillBatch(batch);
+});
+function openIngredientDelete(ingredient, batch) {
+  if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
+  pendingDelete = { ...ingredient, batch };
+  const heading = document.querySelector('#ingredient-delete-heading');
+  if (heading) heading.textContent = batch ? 'Remove stock batch?' : 'Delete ingredient?';
+  ++loadVersion; loading = false;
+  list.setAttribute('aria-busy', 'false'); message(operationMessage, ''); renderInventory();
+  kitchenUI?.open('ingredient-delete-dialog', { onCancel: cancelIngredientDelete, busy: () => deleting, fallback: '#add-ingredient' });
+  confirmationButton.focus();
+}
+function expiryNode(value) {
+  const info = globalThis.kitchenExpiry?.indicator(value);
+  if (!info) return null;
+  const node = element('p', info.tone === 'normal' ? 'expiry' : 'expiry expiry-badge expiry-'+info.tone, info.text);
+  return node;
+}
 function renderInventory() {
   cardButtons = [];
+  if (globalThis.kitchenExpiry) inventory.sort(globalThis.kitchenExpiry.compare);
   cards.replaceChildren(...inventory.map(ingredientCard));
   count.textContent = inventory.length;
   listMessage.textContent = inventory.length ? '' : categoryFilter?.value ? 'No ingredients match this category.' : 'Add your first ingredient.';
@@ -97,9 +144,14 @@ function ingredientCard(ingredient) {
   header.append(element('h3', '', ingredient.name));
   const locations = { fridge: 'Fridge', freezer: 'Freezer', pantry: 'Pantry' };
   const storage = Object.hasOwn(locations, ingredient.storage) ? ingredient.storage : 'pantry';
-  header.append(element('span', 'storage storage-' + storage, locations[ingredient.storage] || ingredient.storage));
-  const amount = element('p', 'amount', String(ingredient.quantity));
-  amount.append(element('span', '', ingredient.unit));
+  header.append(element('span', 'storage storage-' + storage, ingredient.storageName || locations[ingredient.storage] || ingredient.storage || 'Unassigned'));
+  const amount = element('p', 'amount');
+  const totals = ingredient.totals || [{ quantity: ingredient.quantity, unit: ingredient.unit }];
+  for (const [index,total] of totals.entries()) {
+    if (index) amount.append(element('br'));
+    amount.append(element('strong','',String(total.quantity)), element('span','',total.unit+(total.packageSize?' ('+total.packageSize+')':'')));
+  }
+  if (!totals.length) amount.textContent = 'No stock';
   const expiry = element('p', 'expiry');
   expiry.append(element('span', '', kitchenUI ? 'Use by' : 'Expiry date'));
   if (ingredient.expiryDate && !Number.isNaN(Date.parse(ingredient.expiryDate))) {
@@ -111,7 +163,7 @@ function ingredientCard(ingredient) {
   }
   card.append(header, amount);
   if (kitchenUI) card.append(element('p', 'category-name', ingredient.categoryName || 'Uncategorized'));
-  if (ingredient.expiryDate || !kitchenUI) card.append(expiry);
+  if (ingredient.expiryDate || !kitchenUI) card.append(expiryNode(ingredient.expiryDate) || expiry);
   const actions = element('div', 'card-actions');
   const editButton = element('button', 'button secondary', 'Edit');
   const deleteButton = element('button', 'button secondary danger', 'Delete');
@@ -125,17 +177,7 @@ function ingredientCard(ingredient) {
   shoppingButton.setAttribute('aria-label', 'Add ' + ingredient.name + ' to shopping list');
   shoppingButton.addEventListener('click', () => openShopping(ingredient));
   editButton.addEventListener('click', () => startEditing(ingredient));
-  deleteButton.addEventListener('click', () => {
-    if (saving || deleting || editing || pendingDelete || shoppingAction || adding) return;
-    pendingDelete = ingredient;
-    ++loadVersion;
-    loading = false;
-    list.setAttribute('aria-busy', 'false');
-    message(operationMessage, '');
-    renderInventory();
-    kitchenUI?.open('ingredient-delete-dialog', { onCancel: cancelIngredientDelete, busy: () => deleting, fallback: '#add-ingredient' });
-    confirmationButton.focus();
-  });
+  deleteButton.addEventListener('click', () => openIngredientDelete(ingredient));
   if (kitchenUI) {
     const menu = kitchenUI.cardActions(ingredient.name, shoppingButton, editButton, deleteButton);
     cardButtons.push(menu.toggle);
@@ -144,6 +186,23 @@ function ingredientCard(ingredient) {
     actions.append(editButton, deleteButton, shoppingButton);
     card.append(actions);
   }
+  if (ingredient.batches?.length && kitchenUI) {
+    const details = element('details','batch-details');
+    details.append(element('summary','',ingredient.batches.length+' stock batch'+(ingredient.batches.length === 1 ? '' : 'es')));
+    for (const batch of ingredient.batches) {
+      const row = element('div','batch-row');
+      row.append(element('p','',batch.quantity+' '+batch.unit+(batch.packageSize?' ('+batch.packageSize+')':'')+' · '+batch.storageName));
+      if (batch.expiryDate) row.append(expiryNode(batch.expiryDate));
+      const edit = element('button','button secondary','Edit batch'); edit.type = 'button';
+      const remove = element('button','button secondary danger','Remove batch'); remove.type = 'button';
+      edit.setAttribute('aria-label','Edit '+ingredient.name+' batch '+batch.quantity+' '+batch.unit);
+      remove.setAttribute('aria-label','Remove '+ingredient.name+' batch '+batch.quantity+' '+batch.unit);
+      edit.addEventListener('click',()=>startEditing(ingredient,batch));
+      remove.addEventListener('click',()=>openIngredientDelete(ingredient,batch));
+      row.append(edit,remove); details.append(row); cardButtons.push(edit,remove);
+    }
+    card.append(details);
+  }
   if (shoppingAction?.ingredient._id === ingredient._id) {
     const plan = shoppingPlan();
     if (kitchenUI) kitchenUI.content('plan-content', plan);
@@ -151,8 +210,8 @@ function ingredientCard(ingredient) {
   }
   if (pendingDelete && pendingDelete._id === ingredient._id) {
     const confirmation = element('div', 'delete-confirmation');
-    confirmation.append(element('p', '', 'Delete “' + ingredient.name + '”? This permanently removes it from your inventory.'));
-    const confirm = element('button', 'button secondary danger', 'Confirm delete');
+    confirmation.append(element('p', '', pendingDelete.batch ? 'Remove this '+pendingDelete.batch.quantity+' '+pendingDelete.batch.unit+' batch of “'+ingredient.name+'”? Other batches will be kept.' : 'Delete “' + ingredient.name + '”? This permanently removes it from your inventory.'));
+    const confirm = element('button', 'button secondary danger', pendingDelete.batch ? 'Confirm remove' : 'Confirm delete');
     const cancel = element('button', 'button secondary', 'Cancel');
     confirm.type = cancel.type = 'button';
     confirm.addEventListener('click', async () => {
@@ -164,17 +223,20 @@ function ingredientCard(ingredient) {
       confirm.textContent = 'Deleting…';
       message(operationMessage, 'Deleting “' + ingredient.name + '”…');
       try {
-        const response = await fetch('/api/ingredients/' + encodeURIComponent(ingredient._id), { method: 'DELETE' });
+        const batch = pendingDelete.batch;
+        const response = await fetch('/api/ingredients/' + encodeURIComponent(ingredient._id) + (batch ? '/batches/'+encodeURIComponent(batch._id) : ''), { method: 'DELETE' });
         if (!response.ok) {
           const data = await response.json();
           throw new Error(data.error || 'Unable to delete the ingredient. Please try again.');
         }
-        inventory = inventory.filter(record => record._id !== ingredient._id);
+        if (batch) { const updated = await response.json(); inventory = inventory.map(record => record._id === ingredient._id ? updated : record); }
+        else inventory = inventory.filter(record => record._id !== ingredient._id);
         pendingDelete = null;
-        message(operationMessage, 'Deleted “' + ingredient.name + '”.', 'success');
+        const resultMessage = (batch ? 'Removed a batch of “' : 'Deleted “') + ingredient.name + '”.';
+        message(operationMessage, resultMessage, 'success');
         renderInventory();
         kitchenUI?.dismiss('ingredient-delete-dialog');
-        kitchenUI?.toast('Deleted “' + ingredient.name + '”.');
+        kitchenUI?.toast(resultMessage);
         if (kitchenUI) await kitchenUI.refreshAll();
       } catch (error) {
         message(operationMessage, error instanceof TypeError || error instanceof SyntaxError ? 'Unable to confirm deletion. Cancel and refresh the list before trying again.' : error.message, 'error');
@@ -299,7 +361,7 @@ function shoppingPlan() {
     message(feedback, 'Saving your shopping item…');
     const selected = action.selected;
     const body = { name: selected?.name || action.ingredient.name, plannedQuantity: action.plannedQuantity, unit: action.unit,
-      categoryId: selected ? selected.categoryId : action.ingredient.categoryId || null };
+      categoryId: selected ? selected.categoryId : action.ingredient.categoryId || null, packageSize: selected ? selected.packageSize || null : action.ingredient.packageSize || null };
     if (!selected?.ingredientId) body.ingredientId = action.ingredient._id;
     try {
       const response = await fetch('/api/shopping-items' + (selected ? '/' + encodeURIComponent(selected._id) : ''), {
@@ -379,12 +441,18 @@ form.addEventListener('submit', async (event) => {
   validateQuantity();
   if (!form.reportValidity()) return;
   const ingredient = {
-    name: form.elements.name.value.trim(),
+    name: form.elements.name.value,
     quantity: Number(quantityInput.value),
     unit: (globalThis.kitchenUnits?.value(form.elements.unit) ?? form.elements.unit.value).trim(),
-    storage: form.elements.storage.value,
+    ...(form.elements.storageId ? { storageId: storageField.value || null } : { storage: storageField.value }),
     expiryDate: form.elements.expiryDate.value || null
   };
+  const selectedUnit = globalThis.kitchenUnits?.value(form.elements.unit) ?? form.elements.unit.value;
+  const oldUnit = editing?.batches?.find(batch => batch._id === editingBatch)?.unit || editing?.unit;
+  if (editing && selectedUnit === oldUnit) ingredient.unit = oldUnit;
+  if (form.elements.packageSize) ingredient.packageSize = form.elements.packageSize.value.trim() || null;
+  if (editing && editingBatch && batchSelect) ingredient.batchId = editingBatch;
+  if (globalThis.storageUI && !globalThis.storageUI.available()) { message(formMessage, 'Refresh storage locations in Settings before saving.', 'error'); return; }
   if (form.elements.categoryId) ingredient.categoryId = form.elements.categoryId.value || null;
   saving = true;
   kitchenUI?.busy(true);
@@ -403,6 +471,7 @@ form.addEventListener('submit', async (event) => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Unable to save the ingredient. Please try again.');
     globalThis.kitchenUnits?.remember(ingredient.unit);
+    globalThis.storageUI?.remember(ingredient.storageId);
     finishEditing();
     formMessage.className = 'form-message success';
     formMessage.textContent = (edited ? 'Updated “' : 'Added “') + data.name + '”. Your ingredient is saved.';
@@ -457,6 +526,7 @@ document.querySelector('#add-ingredient')?.addEventListener('click', () => {
   finishEditing();
   adding = true;
   globalThis.kitchenUnits?.set(form.elements.unit, globalThis.kitchenUnits.preferred());
+  globalThis.storageUI?.set(storageField, globalThis.storageUI.preferred());
   cancelEditButton.hidden = false;
   message(formMessage, '');
   kitchenUI.open('ingredient-dialog', { onCancel: cancelIngredient, busy: () => saving, fallback: '#add-ingredient' });
@@ -464,4 +534,16 @@ document.querySelector('#add-ingredient')?.addEventListener('click', () => {
   form.elements.name.focus();
 });
 loadIngredients();
-categoryFilter?.addEventListener('change', loadIngredients);
+categoryFilter?.addEventListener('change', () => kitchenUI ? kitchenUI.filterChanged('kitchen') : loadIngredients());
+if (globalThis.window && globalThis.kitchenExpiry) {
+  let timer;
+  function refreshExpiry() {
+    if (!editing && !pendingDelete && !shoppingAction && !adding) renderInventory();
+    clearTimeout(timer);
+    const now = new Date();
+    timer = setTimeout(refreshExpiry, new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).getTime()-now.getTime()+100);
+  }
+  window.addEventListener('focus',refreshExpiry);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshExpiry();});
+  refreshExpiry();
+}

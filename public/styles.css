@@ -129,3 +129,52 @@ input:focus,select:focus{border-color:var(--green);outline:3px solid #27684e20}
 .category-delete-confirmation{border:1px solid #e9cccc;padding:12px;border-radius:10px;margin:12px 0 0}
 .category-delete-confirmation p{overflow-wrap:anywhere;font-size:.875rem;margin:0 0 12px}
 #category-management-form{margin-top:18px}
+/* Shopping workflow: preserve two clearly separated, independently scrolling panels. */
+@media(max-width:699px){.workspace.comparing{gap:20px}}
+.shopping-filter-bar{display:flex;gap:8px;align-items:center;min-width:0}
+.shopping-filter-bar select{flex:1;min-width:0;width:0}
+.bulk-action{background:var(--green);color:#fff;max-width:150px;flex-shrink:0;font-size:.75rem;padding:6px 8px}
+.bulk-action:hover{background:#20573f}
+.shopping-card{grid-template-columns:44px minmax(0,1fr);gap:8px;align-items:start}
+.pick-control{display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;margin:0;cursor:pointer}
+.pick-control input{width:22px;height:22px;margin:0;accent-color:var(--green);padding:0}
+.shopping-card-body{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px}
+.shopping-card.picked-up{border-color:#7aa583;background:#edf6ea}
+.shopping-state{grid-column:1/-1;font-size:.75rem;color:var(--green);margin:0;font-weight:650}
+.expiry-badge{display:inline-block;border-radius:6px;padding:3px 7px;font-size:.75rem;font-weight:650;width:fit-content;max-width:100%;overflow-wrap:anywhere}
+.expiry-soon{background:#fff0c3;color:#775300}
+.expiry-expired{background:#fbe1dc;color:#9a2929}
+.batch-details{grid-column:1/-1;font-size:.8125rem;border-top:1px solid var(--border);margin-top:5px;padding-top:5px;min-width:0}
+summary{cursor:pointer;min-height:44px;padding:12px 0;font-size:.875rem;font-weight:600;overflow-wrap:anywhere}
+.batch-row{padding:8px 0;border-top:1px solid var(--border);overflow-wrap:anywhere}
+.batch-row p{margin:0 0 6px}
+.batch-row .button{margin:2px;font-size:.8125rem}
+#locations-list .category-manager-row{display:block;margin:12px 0;padding-bottom:12px;border-bottom:1px solid var(--border)}
+#bulk-dialog{width:100%}
+@media(min-width:700px){#bulk-dialog{width:560px}}
+.bulk-rows{list-style:none;margin:16px 0;padding:0;display:grid;gap:12px}
+.bulk-review-row{border:1px solid var(--border);border-radius:12px;padding:12px;min-width:0}
+.bulk-review-row h3{margin-bottom:12px}
+.bulk-review-row .field-row{margin-bottom:8px}
+.bulk-review-row .field{margin-bottom:12px}
+.bulk-summary{font-weight:650;margin:8px 0;overflow-wrap:anywhere;font-size:.875rem}
+.bulk-review-row details{border-top:1px solid var(--border);margin-top:8px}
+.bulk-review-row details .button{margin:3px 3px 3px 0}
+.bulk-match-actions{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.bulk-match-actions .button{white-space:normal;text-align:left}
+.alias-choice{display:flex;gap:8px;align-items:center;min-height:44px;font-weight:450}
+.alias-choice input{width:22px;height:22px;flex-shrink:0;accent-color:var(--green)}
+.bulk-shared .button{width:100%}
+#batch-select-field{margin-top:12px}
+
+/* Very short phones keep both stock windows usable. Exit Compare stays in the
+   header; the single-view switch returns as soon as Compare is closed. */
+@media(max-width:699px) and (max-height:650px){
+  .app-header.in-compare .view-switch{display:none}
+  .workspace.comparing{padding-bottom:max(52px,calc(env(safe-area-inset-bottom) + 40px))}
+  .workspace.comparing .panel-header{padding:4px 8px}
+  .workspace.comparing .category-filter{padding:4px 6px}
+}
+/* Give shopping quantities a full line even beside the 44px checklist target. */
+.shopping-card-body .amount{grid-column:1/-1}
+.shopping-card-body .card-actions{grid-column:1/-1;grid-row:auto;max-width:none}

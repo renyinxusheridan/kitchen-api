@@ -8,10 +8,14 @@
   <title>Kitchen · Inventory & shopping</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/ui.js" defer></script>
+  <script src="/reference-manager.js" defer></script>
   <script src="/categories-ui.js" defer></script>
+  <script src="/storage-ui.js" defer></script>
+  <script src="/expiry.js" defer></script>
   <script src="/units.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/shopping.js" defer></script>
+  <script src="/purchases-ui.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#ingredient-list">Skip to My Kitchen</a>
@@ -51,7 +55,7 @@
           <button id="add-shopping" class="button add-button" type="button" aria-label="Add shopping item"><span aria-hidden="true">+</span> Add</button>
         </div>
       </header>
-      <div class="category-filter"><select id="shopping-category-filter" data-category-filter aria-label="Filter Shopping List by category"><option value="">All categories</option><option value="null">Uncategorized</option></select></div>
+      <div class="category-filter shopping-filter-bar"><select id="shopping-category-filter" data-category-filter aria-label="Filter Shopping List by category"><option value="">All categories</option><option value="null">Uncategorized</option></select><button id="transfer-picked" class="button bulk-action" type="button" disabled>To My Kitchen (0)</button></div>
       <div id="shopping-list" class="list-scroll" tabindex="0" role="region" aria-label="Shopping List items" aria-busy="true">
         <p id="shopping-list-message" class="list-message" role="status" aria-live="polite">Loading your shopping list…</p>
         <ul id="shopping-cards" class="ingredient-grid" aria-label="Shopping items"></ul>
@@ -67,6 +71,7 @@
             <label for="name">Name</label>
             <input id="name" name="name" type="text" maxlength="100" placeholder="e.g. Cherry tomatoes" required>
           </div>
+          <div class="field" id="batch-select-field" hidden><label for="batch-select">Stock batch</label><select id="batch-select" name="batchId"></select></div>
           <div class="field-row">
             <div class="field">
               <label for="quantity">Quantity</label>
@@ -80,16 +85,13 @@
           <p id="quantity-hint" class="input-hint">Quantity must be greater than zero.</p>
           <div class="field">
             <label for="storage">Storage location</label>
-            <select id="storage" name="storage" required>
-              <option value="fridge">Fridge</option>
-              <option value="freezer">Freezer</option>
-              <option value="pantry">Pantry</option>
-            </select>
+            <select id="storage" name="storageId" data-storage><option value="">Unassigned</option></select>
           </div>
           <div class="field">
             <label for="expiryDate">Expiry date <span class="optional">(optional)</span></label>
             <input id="expiryDate" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
           </div>
+          <details><summary>Package size (optional)</summary><div class="field"><label for="package-size">Package size</label><input id="package-size" name="packageSize" maxlength="60" placeholder="e.g. 500 g bag, 6-pack"></div></details>
           <div class="field"><label for="category">Category</label><select id="category" name="categoryId" data-category><option value="">Uncategorized</option></select></div>
           <button class="button primary" id="save-button" type="submit"><span aria-hidden="true">+</span> Add ingredient</button>
           <button class="button secondary cancel-edit" id="cancel-edit-button" type="button" hidden>Cancel</button>
@@ -115,52 +117,23 @@
           </div>
           <p id="shopping-quantity-hint" class="input-hint">Quantity must be greater than zero.</p>
 
+          <details><summary>Package size (optional)</summary><div class="field"><label for="shopping-package-size">Package size</label><input id="shopping-package-size" name="packageSize" maxlength="60" placeholder="e.g. 500 g bag, 6-pack"></div></details>
           <div class="field"><label for="shopping-category">Category</label><select id="shopping-category" name="categoryId" data-category><option value="">Uncategorized</option></select></div>
           <button class="button primary" id="shopping-save" type="submit"><span aria-hidden="true">+</span> Add shopping item</button>
           <button class="button secondary cancel-edit" id="shopping-cancel-edit" type="button" hidden>Cancel</button>
           <p id="shopping-form-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
         </form></div></div>
   </dialog>
-  <dialog id="purchase-dialog" class="sheet" aria-labelledby="purchase-heading">
-    <header class="sheet-header"><h2 id="purchase-heading">Record purchase</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
-    <div class="sheet-content"><div id="purchase-panel"><p id="purchase-name" class="item-name"></p><p id="purchase-context" class="form-hint"></p><form autocomplete="off" id="purchase-form">
-          <div class="field-row">
-            <div class="field">
-              <label for="purchase-quantity">Purchased quantity</label>
-              <input id="purchase-quantity" name="quantity" type="number" min="0" step="any" required aria-describedby="purchase-quantity-hint">
-            </div>
-            <div class="field">
-              <label for="purchase-unit">Purchased unit</label>
-              <select id="purchase-unit" name="unit" data-unit required></select>
-            </div>
-          </div>
-          <p id="purchase-quantity-hint" class="input-hint">Enter what you actually bought. It can differ from your plan.</p>
-          <div class="field">
-            <label for="purchase-destination">Save to My Kitchen</label>
-            <select id="purchase-destination" name="destination" required aria-describedby="purchase-destination-hint">
-              <option value="" disabled selected>Choose where to save</option>
-              <option value="new">Create a new inventory record</option>
-              <option value="existing" id="purchase-existing-option">Add to linked existing record</option>
-            </select>
-          </div>
-          <p id="purchase-destination-hint" class="input-hint">Quantities combine only when units match exactly. Units are never converted.</p>
-          <div class="field">
-            <label for="purchase-storage">Storage location</label>
-            <select id="purchase-storage" name="storage" required>
-              <option value="fridge">Fridge</option>
-              <option value="freezer">Freezer</option>
-              <option value="pantry">Pantry</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="purchase-expiry">Expiry date <span class="optional">(optional)</span></label>
-            <input id="purchase-expiry" name="expiryDate" type="date" min="0001-01-01" max="9999-12-31">
-          </div>
-          <div class="field" id="purchase-category-field" hidden><label for="purchase-category">Category</label><select id="purchase-category" name="categoryId" data-category disabled><option value="">Uncategorized</option></select></div>
-          <button class="button primary" id="purchase-save" type="submit">Save purchase to My Kitchen</button>
-          <button class="button secondary cancel-edit" id="purchase-cancel" type="button">Cancel</button>
-          <p id="purchase-message" class="form-message" role="status" aria-live="polite" aria-atomic="true"></p>
-        </form></div></div>
+  <dialog id="bulk-dialog" class="sheet" aria-labelledby="bulk-heading">
+    <header class="sheet-header"><h2 id="bulk-heading">Review picked-up items</h2><button class="button icon-button" data-close type="button" aria-label="Close dialog">×</button></header>
+    <div class="sheet-content">
+      <p id="bulk-message" class="form-message" role="status" aria-live="polite"></p>
+      <form id="bulk-form" autocomplete="off">
+        <details class="bulk-shared"><summary>Storage for all items</summary><div class="field"><label for="bulk-storage">Storage location</label><select id="bulk-storage" data-storage><option value="">Unassigned</option></select></div><button id="apply-bulk-storage" class="button secondary" type="button">Apply to all review items</button></details>
+        <ol id="bulk-rows" class="bulk-rows"></ol>
+        <button id="bulk-save" class="button primary" type="submit">Add picked-up items to My Kitchen</button>
+      </form>
+    </div>
   </dialog>
   <dialog id="plan-dialog" class="sheet" aria-labelledby="plan-heading">
     <header class="sheet-header"><h2 id="plan-heading">Add to shopping list</h2><button class="button icon-button" type="button" data-close aria-label="Close dialog">×</button></header>
@@ -192,6 +165,14 @@
       <p id="categories-message" class="form-message" role="status" aria-live="polite"></p>
       <ul id="categories-list" class="custom-unit-list"></ul>
       <form id="category-management-form"><div class="field"><label for="category-name">New category name</label><input id="category-name" maxlength="100" required autocomplete="off" aria-describedby="category-create-message"></div><button class="button primary" id="category-management-save" type="submit">Add category</button><p id="category-create-message" class="form-message" role="status" aria-live="polite"></p></form>
+      </section>
+      <section class="settings-section" id="locations-settings" aria-labelledby="locations-heading">
+      <h3 id="locations-heading">Storage locations</h3>
+      <p class="form-hint">Locations are shared across this kitchen. Deleting one leaves its food Unassigned.</p>
+      <button class="button secondary" id="locations-retry" type="button">Refresh locations</button>
+      <p id="locations-message" class="form-message" role="status" aria-live="polite"></p>
+      <ul id="locations-list" class="custom-unit-list"></ul>
+      <form id="location-management-form"><div class="field"><label for="location-name">New location name</label><input id="location-name" maxlength="100" required autocomplete="off" aria-describedby="location-create-message"></div><button class="button primary" type="submit">Add location</button><p id="location-create-message" class="form-message" role="status" aria-live="polite"></p></form>
       </section>
     </div>
   </dialog>
