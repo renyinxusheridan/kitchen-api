@@ -53,6 +53,9 @@ const encode = data => BSON.EJSON.stringify(data,{relaxed:false});
   const purchase={quantity:1.5,unit:'pieces',destination:'new',storage:'pantry'};
   const recorded=await request('/api/shopping-items/'+newPlan.body._id+'/purchase','POST',purchase);assert.equal(recorded.status,200);assert.equal(recorded.body.ingredient.categoryId,id);assert.equal((await request('/api/shopping-items/'+newPlan.body._id+'/purchase','POST',purchase)).body.alreadyCompleted,true);
   console.log('PASS real API create/rename/duplicate/filter/linked copy/edit/purchases and fresh database reads.');
+  // Purchased plans have left the list; retain an unpurchased assignment to
+  // exercise category-deletion rollback against both active collections.
+  assert.equal((await request('/api/shopping-items','POST',{name:'Unpurchased category assignment',plannedQuantity:1,unit:'pieces',categoryId:id})).status,201);
   const detail=(await request('/api/categories/'+id)).body;assert.equal(detail.inventoryCount,2);assert.equal(detail.shoppingCount,1);
   const snapshot=encode({ingredients:await database.collection('ingredients').find({}).toArray(),shopping_items:await database.collection('shopping_items').find({}).toArray()});
   failShopping=true;assert.equal((await request('/api/categories/'+id,'DELETE',detail)).status,500);

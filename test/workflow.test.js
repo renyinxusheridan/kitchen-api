@@ -100,10 +100,34 @@ test('Server idempotency, partial failures, rollback and retry prevent double st
  await setup();t.mock.method(console,'error',()=>{});
  const first=await addPicked();const second=await addPicked({...plan,name:'New item'});const rows=[purchase(first),purchase(second)];
  memory.failWrite('shopping_items',new ObjectId(second._id));const firstResult=await request('/api/shopping-items/transfer','POST',{items:rows});assert.equal(firstResult.body.recorded,1);assert.equal(firstResult.body.failed,1);
- const state=memory.snapshot();assert.equal(state.ingredients.length,1);assert.equal(state.ingredients[0].batches.length,2);assert.equal(state.shopping_items[1].status,undefined);assert.equal(state.shopping_items[1].pickedUp,true);
+ const state=memory.snapshot();assert.equal(state.ingredients.length,1);assert.equal(state.ingredients[0].batches.length,2);assert.equal(state.shopping_items.length,1);assert.equal(state.shopping_items[0].status,undefined);assert.equal(state.shopping_items[0].pickedUp,true);assert.equal(state.purchase_receipts.length,1);
  const retried=await request('/api/shopping-items/transfer','POST',{items:rows});assert.equal(retried.body.results[0].alreadyCompleted,true);assert.equal(retried.body.recorded,2);assert.equal(memory.snapshot().ingredients[0].batches.length,2);assert.equal(memory.snapshot().ingredients.length,2);
  const snapshot=encode(memory.snapshot().ingredients);await request('/api/shopping-items/transfer','POST',{items:rows});assert.equal(encode(memory.snapshot().ingredients),snapshot);
  const another=await addPicked();const concurrent=await Promise.all([request('/api/shopping-items/transfer','POST',{items:[purchase(another)]}),request('/api/shopping-items/transfer','POST',{items:[purchase(another)]})]);assert.equal(concurrent.filter(result=>result.body.results[0].alreadyCompleted).length,1);assert.equal(memory.snapshot().ingredients[0].batches.length,3);
+});
+
+test('Inventory, receipt, and shopping-removal failures roll back together; successful bulk rows disappear and retries use receipts',async(t)=>{
+ t.mock.method(console,'error',()=>{});
+ for(const collection of ['ingredients','purchase_receipts','shopping_items']) {
+  await setup();const source=memory.snapshot().ingredients[0];const item=await addPicked();const rows=[{...purchase(item),unit:'bags',quantity:1.5,packageSize:'500 g',expiryDate:'2026-12-01'}];
+  const before=encode(memory.snapshot().ingredients);memory.failWrite(collection,collection==='ingredients'?source._id:new ObjectId(item._id));
+  const failed=await request('/api/shopping-items/transfer','POST',{items:rows});assert.equal(failed.body.failed,1,collection);assert.equal(encode(memory.snapshot().ingredients),before,collection);
+  assert.equal(memory.snapshot().shopping_items.length,1);assert.equal(memory.snapshot().shopping_items[0].pickedUp,true);assert.equal((memory.snapshot().purchase_receipts||[]).length,0);
+  const saved=await request('/api/shopping-items/transfer','POST',{items:rows});assert.equal(saved.body.recorded,1);assert.equal(saved.body.results[0].removed,true);
+  const list=(await request('/api/shopping-items')).body;assert.equal(list.count,0);assert.equal(list.pickedUpCount,0);assert.equal((await request('/api/shopping-items/review')).body.count,0);
+  const receipt=memory.snapshot().purchase_receipts[0];assert.equal(String(receipt._id),item._id);assert.equal(receipt.shoppingItem.purchase.quantity,1.5);assert.equal(receipt.shoppingItem.purchase.packageSize,'500 g');assert.equal(receipt.shoppingItem.purchase.expiryDate.toISOString(),'2026-12-01T00:00:00.000Z');
+  const stock=encode(memory.snapshot().ingredients);const repeated=await request('/api/shopping-items/transfer','POST',{items:rows});assert.equal(repeated.body.results[0].alreadyCompleted,true);assert.equal(encode(memory.snapshot().ingredients),stock);assert.equal(memory.snapshot().purchase_receipts.length,1);
+ }
+});
+
+test('Individual purchases remove their plan atomically and durable receipts prevent re-adding even after later stock deletion',async(t)=>{
+ await setup();t.mock.method(console,'error',()=>{});const item=await addPicked({...plan,name:'New purchase'});const path='/api/shopping-items/'+item._id+'/purchase';
+ const body={quantity:2,unit:'packs',packageSize:'6-pack',storageId:null,expiryDate:'2026-12-03',destination:'new'};
+ memory.failWrite('shopping_items',new ObjectId(item._id));assert.equal((await request(path,'POST',body)).status,500);assert.equal(memory.snapshot().ingredients.length,1);assert.equal(memory.snapshot().shopping_items.length,1);
+ const result=await request(path,'POST',body);assert.equal(result.status,200);assert.equal(result.body.removed,true);assert.equal(result.body.shoppingItem.status,'completed');assert.equal(result.body.ingredient.batches[0].packageSize,'6-pack');assert.equal(memory.snapshot().shopping_items.length,0);
+ const inventoryId=result.body.ingredient._id;const batches=encode(memory.snapshot().ingredients);const retry=await request(path,'POST',body);assert.equal(retry.body.alreadyCompleted,true);assert.equal(retry.body.shoppingItem._id,item._id);assert.equal(encode(memory.snapshot().ingredients),batches);
+ assert.equal((await request('/api/ingredients/'+inventoryId,'DELETE')).status,204);const after=encode(memory.snapshot().ingredients);const later=await request(path,'POST',body);assert.equal(later.status,200);assert.equal(later.body.alreadyCompleted,true);assert.equal(later.body.ingredient,null);assert.equal(encode(memory.snapshot().ingredients),after);
+ assert.equal((await request('/api/shopping-items/transfer','POST',{items:[purchase(item)]})).body.results[0].alreadyCompleted,true);assert.equal(encode(memory.snapshot().ingredients),after);
 });
 
 test('Batch editing/removal targets only the chosen batch and retains ingredient identity and other purchases',async()=>{

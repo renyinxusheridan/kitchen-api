@@ -179,14 +179,15 @@ function createShoppingRouter(getShoppingItems = async () => (await getDatabase(
   });
 
   // Keep the former endpoint available for older clients. It also appends a
-  // separate batch now, so an old client cannot overwrite older stock dates.
+  // separate batch and removes the saved item, just like the bulk endpoint.
   router.post('/:id/purchase',validatePurchase,async(req,res,next) => {
     try {
-      const result = await transferOne({ ...req.purchase, storageId: req.purchase.storageId ? String(req.purchase.storageId) : null, ...(req.purchase.categoryId !== undefined ? { categoryId: req.purchase.categoryId ? String(req.purchase.categoryId) : null } : {}), shoppingItemId: String(req.shoppingItemId), matchMode: req.purchase.destination === 'new' ? 'separate' : 'auto' },{ requirePicked: false });
+      const result = await transferOne({ ...req.purchase, expiryDate: req.purchase.expiryDate ? req.purchase.expiryDate.toISOString().slice(0,10) : null, storageId: req.purchase.storageId ? String(req.purchase.storageId) : null, ...(req.purchase.categoryId !== undefined ? { categoryId: req.purchase.categoryId ? String(req.purchase.categoryId) : null } : {}), shoppingItemId: String(req.shoppingItemId), matchMode: req.purchase.destination === 'new' ? 'separate' : 'auto' },{ requirePicked: false });
       const database = await getDatabase();
-      const item = await database.collection('shopping_items').findOne({ _id: req.shoppingItemId });
+      const receipt = await database.collection('purchase_receipts').findOne({ _id: req.shoppingItemId });
+      const item = receipt.shoppingItem;
       const ingredient = result.ingredientId ? await database.collection('ingredients').findOne({ _id: new ObjectId(String(result.ingredientId)) }) : null;
-      res.json({ shoppingItem: (await withInventory([item]))[0], ingredient: ingredient ? (await populateInventory([ingredient]))[0] : null, alreadyCompleted: result.alreadyCompleted });
+      res.json({ shoppingItem: (await withInventory([item]))[0], ingredient: ingredient ? (await populateInventory([ingredient]))[0] : null, alreadyCompleted: result.alreadyCompleted, removed: true });
     } catch(error) { next(error); }
   });
 

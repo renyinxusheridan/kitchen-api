@@ -113,8 +113,8 @@
         }
       }
       await ui.refreshAll();
-      if(!rows.length){ui.dismiss('bulk-dialog');ui.toast('Recorded '+recorded+' purchase(s). Unpicked items remain on your list.');}
-      else{feedback(message,'Recorded '+recorded+' item(s). '+rows.length+' need attention; correct them below and retry.',true);save.textContent='Retry remaining purchases';}
+      if(!rows.length){ui.dismiss('bulk-dialog');ui.toast('Added '+recorded+' item(s) to My Kitchen.');}
+      else{feedback(message,'Added '+recorded+' item(s) to My Kitchen. '+rows.length+' need attention; correct them below and retry.',true);save.textContent='Retry remaining purchases';}
     }catch(error){feedback(message,'Unable to confirm every result. '+recorded+' confirmed; retrying remaining items is safe and will not add recorded stock twice.',true);await ui.refreshAll();}
     finally{busy=false;controls();ui.busy(false);if(rows.length)rows[0].node.querySelector('input')?.focus();}
   });

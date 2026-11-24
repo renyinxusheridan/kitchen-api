@@ -58,7 +58,9 @@ Display names are preserved; normalization is only for matching. The app never s
 
 New items default to their shopping category and available shopping/last-used storage. Existing matches initially use their inventory category/location. Existing ingredient categories are preserved on recording. Every purchase appends a new batch, retaining older stock. Optional package-size details distinguish known sizes such as 500 g and 1 kg; no size is inferred. Quantities are summarized **only for exactly matching unit strings and package-size labels**; incompatible units/package sizes remain separately labelled. There is no unit conversion and no automatic copying of an older expiry date.
 
-One confirmation saves the review. Each item is an independent MongoDB transaction: inventory/batch save, optional alias confirmation and shopping completion commit together. The shopping item's ID is the durable idempotency key. Double-clicks, concurrent requests, lost responses and refresh/retry cannot add that purchase again. Successful rows leave the review; failed rows keep their values and error feedback for retry. A network error can leave an outcome temporarily unknown, but retry remains safe. Concurrent automatic matching is serialized so two fresh purchases do not accidentally create duplicate identities.
+One confirmation saves the review. Each item is an independent MongoDB transaction: inventory/batch save, optional alias confirmation, a durable purchase receipt, and removal from Shopping List commit together. Only successful items disappear; failed items keep their values and error feedback for retry. If list removal or receipt saving fails, the inventory write rolls back too. Both lists and counts refresh after transfer, and a brief message confirms success.
+
+`purchase_receipts` uses the original shopping item's ID as its unique `_id` and retains the completed plan and actual purchase details. Receipts remain available even after the shopping row or purchased stock is removed. Double-clicks, concurrent requests, lost responses and refresh/retry therefore cannot add that purchase again. The individual purchase endpoint uses the same transaction and returns `removed: true` plus the saved plan snapshot for compatibility. Existing historical completed entries are preserved; retrying one archives its receipt and removes it without adding stock again. Concurrent automatic matching is serialized so two fresh purchases do not accidentally create duplicate identities.
 
 ## Settings
 
@@ -120,7 +122,7 @@ All paths use the existing relative `/api` convention. IDs are MongoDB ObjectId 
 | `PATCH /api/shopping-items/:id/picked-up` | `{ pickedUp: true/false }`; completed items cannot be unchecked |
 | `DELETE /api/shopping-items/:id` | Removes the plan only, leaving inventory intact |
 | `GET /api/shopping-items/review` | All picked-up/unrecorded rows and current match candidates, ignoring category filters |
-| `POST /api/shopping-items/transfer` | `{ items: [...] }`; at most 100 unique rows per request, per-row results |
+| `POST /api/shopping-items/transfer` | `{ items: [...] }`; at most 100 unique rows, saves stock/receipt and removes each successful shopping item atomically |
 | `GET/POST /api/categories` | List/create shared categories |
 | `GET/PUT/DELETE /api/categories/:id` | Usage preview/rename/confirmed transactional deletion |
 | `GET/POST /api/storage-locations` | List/create shared storage locations |
@@ -132,7 +134,7 @@ Legacy `category=protein/grains/fruits_vegetables/other` and `storage=fridge/fre
 
 ## Verification for this update
 
-The local build and **47 tests** pass. Tests cover migration preservation/reruns, location management/deletion rollback, category and combined filters, required expiry states and ordering, daylight-saving calendar boundaries, checklist persistence and removal, hidden selection counts, stale links, Egg/Eggs/aliases/ambiguity, different expiry/unit batches, targeted batch editing/removal, concurrent/repeated submissions, completion failure rollback and retry.
+The local build and **49 tests** pass. Tests cover migration preservation/reruns, location management/deletion rollback, category and combined filters, required expiry states and ordering, daylight-saving calendar boundaries, checklist persistence and removal, hidden selection counts, stale links, Egg/Eggs/aliases/ambiguity, different expiry/unit batches, targeted batch editing/removal, concurrent/repeated submissions, receipt/removal failure rollback, retry after list removal, and individual purchases after later stock deletion.
 
 Real MongoDB checks in the disposable workflow database passed migration/rerun preservation, location create/rename/duplicate rejection/deletion, hidden picked-up selection, actual persisted batches with differing units/dates, confirmed aliases, concurrent idempotency, injected completion failure rollback, partial retry, batch editing/removal and fresh-read persistence. The disposable database was removed.
 

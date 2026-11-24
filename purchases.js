@@ -28,12 +28,24 @@ async function transferOne(raw, { requirePicked = true } = {}) {
   return withTransaction(async(database,session) => {
     const shopping = database.collection('shopping_items');
     const inventory = database.collection('ingredients');
-    const item = await shopping.findOne({ _id: new ObjectId(row.shoppingItemId) },{ session });
+    // Receipts outlive the shopping row and even later stock edits/deletions.
+    // Their unique _id is the original shopping ID, so a lost response is safe
+    // to retry after the item has disappeared from the list.
+    const receipts = database.collection('purchase_receipts');
+    const shoppingId = new ObjectId(row.shoppingItemId);
+    const previous = await receipts.findOne({ _id: shoppingId },{ session });
+    if (previous) return { shoppingItemId: row.shoppingItemId, alreadyCompleted: true, removed: true, ingredientId: previous.ingredientId, batchId: previous.batchId };
+    const item = await shopping.findOne({ _id: shoppingId },{ session });
     if (!item) throw fail(404,'Shopping item no longer exists.');
-    if (item.status === 'completed') return { shoppingItemId: row.shoppingItemId, alreadyCompleted: true, ingredientId: item.purchase?.ingredientId || item.ingredientId };
+    await database.collection('_workflow_locks').updateOne({ _id: 'inventory-matching' },{ $inc: { revision: 1 } },{ session, upsert: true });
+    if (item.status === 'completed') {
+      await receipts.insertOne({ _id: item._id, shoppingItem: item, ingredientId: item.purchase?.ingredientId || item.ingredientId, batchId: item.purchase?.batchId, completedAt: item.completedAt || new Date() },{ session });
+      const removed = await shopping.deleteOne({ _id: item._id, status: 'completed' },{ session });
+      if (!removed.deletedCount) throw fail(409,'This shopping item changed. Refresh the review before retrying.');
+      return { shoppingItemId: row.shoppingItemId, alreadyCompleted: true, removed: true, ingredientId: item.purchase?.ingredientId || item.ingredientId, batchId: item.purchase?.batchId };
+    }
     if (raw.unit === item.unit) row.unit = item.unit; // Preserve an unchanged legacy unit verbatim.
     if (requirePicked && item.pickedUp !== true) throw fail(409,'This item is no longer picked up. Refresh your review.');
-    await database.collection('_workflow_locks').updateOne({ _id: 'inventory-matching' },{ $inc: { revision: 1 } },{ session, upsert: true });
     const all = await inventory.find({}, { session }).toArray();
     const aliases = await database.collection('ingredient_aliases').find({}, { session }).toArray();
     const match = resolveMatch(item,all,aliases);
@@ -63,12 +75,14 @@ async function transferOne(raw, { requirePicked = true } = {}) {
     }
     if (row.matchMode === 'selected' && row.rememberAlias) await rememberAlias(database,session,item.name,ingredient._id);
     const completedAt = new Date();
-    const completed = await shopping.findOneAndUpdate({ _id: item._id, status: { $ne: 'completed' }, ...(requirePicked ? { pickedUp: true } : {}) },
-      { $set: { status: 'completed', pickedUp: true, ingredientId: ingredient._id, completedAt,
-        purchase: { quantity: row.quantity, unit: row.unit, packageSize: row.packageSize || null, storageId, expiryDate: row.expiryDate, batchId: batch._id, ingredientId: ingredient._id, sourceIngredientId: item.ingredientId || null } } },
-      { session, returnDocument: 'after', upsert: false });
-    if (!completed) throw fail(409,'This shopping item changed. Refresh the review before retrying.');
-    return { shoppingItemId: row.shoppingItemId, ingredientId: ingredient._id, batchId: batch._id, alreadyCompleted: false };
+    const completed = { ...item, status: 'completed', pickedUp: true, ingredientId: ingredient._id, completedAt,
+      purchase: { quantity: row.quantity, unit: row.unit, packageSize: row.packageSize || null, storageId, expiryDate: row.expiryDate, batchId: batch._id, ingredientId: ingredient._id, sourceIngredientId: item.ingredientId || null } };
+    await receipts.insertOne({ _id: item._id, shoppingItem: completed, ingredientId: ingredient._id, batchId: batch._id, completedAt },{ session });
+    // Save stock, its durable receipt, and list removal in the same transaction.
+    // Any removal/receipt failure rolls back the inventory write as well.
+    const removed = await shopping.deleteOne({ _id: item._id, status: { $ne: 'completed' }, ...(requirePicked ? { pickedUp: true } : {}) },{ session });
+    if (!removed.deletedCount) throw fail(409,'This shopping item changed. Refresh the review before retrying.');
+    return { shoppingItemId: row.shoppingItemId, ingredientId: ingredient._id, batchId: batch._id, alreadyCompleted: false, removed: true };
   });
 }
 async function transferPurchases(rows) {

@@ -19,7 +19,7 @@ function memoryDatabase() {
   find(filter={}){let data=state[name].filter(row=>matches(row,filter));return {sort(){return this;},limit(n){data=data.slice(0,n);return this;},project(){return this;},async toArray(){return clone(data);}};},
   async findOne(filter){return clone(state[name].find(row=>matches(row,filter))||null);},
   async countDocuments(filter){return state[name].filter(row=>matches(row,filter)).length;},
-  async insertOne(row){row={_id:new ObjectId(),...clone(row)};unique(name,row);state[name].push(row);return {insertedId:row._id};},
+  async insertOne(row){if(writeFailure && writeFailure.name===name && (!writeFailure.id || eq(writeFailure.id,row._id))){writeFailure=null;throw Error('Injected write failure');}row={_id:new ObjectId(),...clone(row)};unique(name,row);state[name].push(row);return {insertedId:row._id};},
   async updateOne(filter,update,options={}){
    if(writeFailure && writeFailure.name===name && (!writeFailure.id || eq(writeFailure.id,filter._id))){writeFailure=null;throw Error('Injected write failure');}
    let row=state[name].find(row=>matches(row,filter));let inserted=false;
@@ -30,7 +30,7 @@ function memoryDatabase() {
   },
   async findOneAndUpdate(filter,update,options){const row=state[name].find(row=>matches(row,filter));if(!row)return null;const id=row._id;await this.updateOne(filter,update,options);return this.findOne({_id:id});},
   async updateMany(filter,update){if(failOn===name){failOn=null;throw Error('Injected failure');}let n=0;for(const row of state[name].filter(row=>matches(row,filter))){await this.updateOne({_id:row._id},update);n++;}return {modifiedCount:n};},
-  async deleteOne(filter){const i=state[name].findIndex(row=>matches(row,filter));if(i<0)return {deletedCount:0};state[name].splice(i,1);return {deletedCount:1};}
+  async deleteOne(filter){if(writeFailure && writeFailure.name===name && (!writeFailure.id || eq(writeFailure.id,filter._id))){writeFailure=null;throw Error('Injected write failure');}const i=state[name].findIndex(row=>matches(row,filter));if(i<0)return {deletedCount:0};state[name].splice(i,1);return {deletedCount:1};}
  };}};
  return {db,reset(value){state=clone(value);for(const name of ['ingredients','shopping_items','categories','_migrations'])state[name] ||= [];},snapshot:()=>clone(state),fail(name){failOn=name;},failWrite(name,id){writeFailure={name,id};},transact(work){const task=tail.then(async()=>{const before=clone(state);try{return await work(db,{});}catch(error){state=before;throw error;}});tail=task.catch(()=>{});return task;}};
 }
