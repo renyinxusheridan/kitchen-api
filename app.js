@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('node:path');
 const { ObjectId } = require('mongodb');
 const { getDatabase, connectionErrorMessage } = require('./db');
 const { createShoppingRouter } = require('./shopping');
@@ -9,6 +10,8 @@ const { createCategoryRouter } = require('./category-router');
 
 function createApp(getIngredients = async () => (await getDatabase()).collection('ingredients')) {
   const app = express();
+  // Express owns `/` on Vercel; serve the page explicitly while assets use its CDN.
+  app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
   app.use(express.json({ limit: '10kb' }));
   app.use('/api/categories', createCategoryRouter());
   app.use('/api/shopping-items', createShoppingRouter());

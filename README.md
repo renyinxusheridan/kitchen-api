@@ -13,7 +13,7 @@ Open **http://localhost:3000/**. Keep the existing `.env` private. For a new che
 
 ## Vercel deployment
 
-The existing Vercel project deploys `main` using the Express preset. `app.js` exports the Express HTTP handler while retaining `createApp` for local development and API tests. Vercel serves `public/` assets from its CDN; `vercel.json` routes `/` to `public/index.html`. API requests retain their existing `/api/ingredients`, `/api/shopping-items`, and `/api/categories` paths.
+The existing Vercel project deploys `main` using the Express preset in `vercel.json`. `app.js` exports the Express HTTP handler while retaining `createApp` for local development and API tests. An explicit `/` route serves `public/index.html`, and Vercel serves the remaining `public/` assets from its CDN. API requests retain their existing `/api/ingredients`, `/api/shopping-items`, and `/api/categories` paths.
 
 Configure `MONGODB_URI` and `DB_NAME` in the Vercel project environment, then redeploy after environment changes. The database connection remains lazy and cached across warm requests. Deployment does not run migrations or modify existing records. Never commit `.env`, credentials, or local `.vercel/` files.
 
